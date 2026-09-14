@@ -1,0 +1,108 @@
+name: build
+
+# NOTE: GitHub only runs workflows that live in the repository root's .github/workflows
+# folder. See the "Continuous integration" section of README.md.
+#
+# The path below is where this project sits inside the paper_scripts repository.
+# If this folder is ever moved to the top level of its own repository, replace
+# "windows_project_data_finder" with "." everywhere it appears in this file.
+
+on:
+  push:
+    paths:
+      - "windows_project_data_finder/**"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "windows_project_data_finder/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    name: Core tests (ubuntu)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: windows_project_data_finder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj
+
+      - name: Run the unit tests
+        run: >
+          dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj
+          -c Release --no-restore --logger "console;verbosity=normal"
+
+  windows-app:
+    name: Build and publish (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows_project_data_finder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Show the SDK that is in use
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore DataFinder.sln
+
+      - name: Build
+        run: dotnet build DataFinder.sln -c Release --no-restore
+
+      - name: Run the unit tests
+        run: dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release --no-build
+
+      - name: Publish the app as a single self-contained executable
+        run: >
+          dotnet publish src/DataFinder.App/DataFinder.App.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=embedded
+          -o publish
+
+      - name: Upload the executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: DataFinder-win-x64
+          path: windows_project_data_finder/publish/
+          if-no-files-found: error
+
+# Optional: publish a GitHub release whenever a version tag is pushed.
+#
+#  release:
+#    name: Release
+#    needs: windows-app
+#    if: startsWith(github.ref, 'refs/tags/v')
+#    runs-on: ubuntu-latest
+#    permissions:
+#      contents: write
+#    steps:
+#      - uses: actions/download-artifact@v4
+#        with:
+#          name: DataFinder-win-x64
+#          path: release
+#      - run: cd release && zip -r ../DataFinder-win-x64.zip .
+#      - uses: softprops/action-gh-release@v2
+#        with:
+#          files: DataFinder-win-x64.zip
+

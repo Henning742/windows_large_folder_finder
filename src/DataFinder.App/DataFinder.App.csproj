@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DataFinder.App</RootNamespace>
+    <AssemblyName>DataFinder</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyTitle>NTFS Folder Finder</AssemblyTitle>
+    <Product>NTFS Folder Finder</Product>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DataFinder.Core\DataFinder.Core.csproj" />
+  </ItemGroup>
+
+</Project>
+
