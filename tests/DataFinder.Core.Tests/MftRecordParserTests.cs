@@ -138,14 +138,61 @@ public sealed class MftRecordParserTests
         MftRecordParseResult? result = new MftRecordParser().Parse(record, BytesPerSector, 0, captureDataRunlist: true);
 
         Assert.NotNull(result);
-        Assert.NotNull(result!.DataRunlist);
-        Assert.Equal(runList, result.DataRunlist);
+        DataRunExtent extent = Assert.Single(result!.DataExtents);
+        Assert.Equal(0, extent.LowestVcn);
+        Assert.Equal(runList, extent.Runlist);
 
-        List<DataRun> runs = Runlist.Decode(result.DataRunlist!);
+        List<DataRun> runs = Runlist.Decode(extent.Runlist);
         DataRun run = Assert.Single(runs);
         Assert.Equal(0, run.StartVcn);
         Assert.Equal(4, run.ClusterCount);
         Assert.Equal(0x10, run.StartLcn);
     }
-}
 
+    [Fact]
+    public void CapturesAttributeListEntries()
+    {
+        byte[] record = new MftRecordBuilder(42, isDirectory: false)
+            .AddFileNameAttribute(parentRecordNumber: 5, name: "split.bin", size: 0, isDirectory: false)
+            .AddAttributeListAttribute((0x80, 0, 777))
+            .Build();
+
+        MftRecordParseResult? result = new MftRecordParser().Parse(record, BytesPerSector, 42);
+
+        Assert.NotNull(result);
+        Assert.True(result!.HasAttributeList);
+        AttributeListEntry entry = Assert.Single(result.AttributeList);
+        Assert.Equal(0x80u, entry.AttributeType);
+        Assert.Equal(0, entry.LowestVcn);
+        Assert.Equal(777u, entry.RecordNumber);
+    }
+
+    [Fact]
+    public void ReportsTheRecordAsAnExtensionWhenItPointsAtABaseRecord()
+    {
+        byte[] record = new MftRecordBuilder(900, isDirectory: false)
+            .AsExtensionOf(100)
+            .AddNonResidentDataAttribute(size: 4096)
+            .Build();
+
+        MftRecordParseResult? result = new MftRecordParser().Parse(record, BytesPerSector, 900);
+
+        Assert.NotNull(result);
+        Assert.Equal(100u, result!.BaseRecordNumber);
+        Assert.True(result.IsExtensionRecord);
+    }
+
+    [Fact]
+    public void BaseRecordsAreNotReportedAsExtensions()
+    {
+        byte[] record = new MftRecordBuilder(42, isDirectory: false)
+            .AddFileNameAttribute(parentRecordNumber: 5, name: "photo.jpg", size: 1234, isDirectory: false)
+            .Build();
+
+        MftRecordParseResult? result = new MftRecordParser().Parse(record, BytesPerSector, 42);
+
+        Assert.NotNull(result);
+        Assert.Equal(0u, result!.BaseRecordNumber);
+        Assert.False(result.IsExtensionRecord);
+    }
+}

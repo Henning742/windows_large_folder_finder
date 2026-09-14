@@ -15,6 +15,7 @@ internal sealed class MftRecordBuilder
     private const int UpdateSequenceOffset = 0x30;
     private const int FirstAttributeOffset = 0x38;
     private const uint AttributeEnd = 0xFFFFFFFF;
+    private const uint AttributeAttributeList = 0x20;
     private const uint AttributeFileName = 0x30;
     private const uint AttributeData = 0x80;
 
@@ -66,7 +67,7 @@ internal sealed class MftRecordBuilder
         return this;
     }
 
-    public MftRecordBuilder AddNonResidentDataAttribute(long size, byte[]? runList = null)
+    public MftRecordBuilder AddNonResidentDataAttribute(long size, byte[]? runList = null, long lowestVcn = 0)
     {
         byte[] runs = runList ?? new byte[] { 0x11, 0x01, 0x00, 0x00 };
         const int runListOffset = 0x40;
@@ -80,13 +81,57 @@ internal sealed class MftRecordBuilder
         WriteUInt16(start + 0x0A, 0);
         WriteUInt16(start + 0x0C, 0);
         WriteUInt16(start + 0x0E, 0);
-        WriteInt64(start + 0x10, 0);        // first VCN
+        WriteInt64(start + 0x10, lowestVcn); // first VCN of this extent
         WriteInt64(start + 0x18, 0);        // last VCN
         WriteUInt16(start + 0x20, runListOffset);
         WriteInt64(start + 0x28, size);     // allocated size
         WriteInt64(start + 0x30, size);     // real size
         WriteInt64(start + 0x38, size);     // initialized size
         runs.CopyTo(_buffer, start + runListOffset);
+
+        _attributeOffset += attributeLength;
+        return this;
+    }
+
+    /// <summary>Marks this record as an extension of another record, as NTFS does when attributes spill over.</summary>
+    public MftRecordBuilder AsExtensionOf(uint baseRecordNumber)
+    {
+        WriteUInt64(0x20, baseRecordNumber);
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a resident <c>$ATTRIBUTE_LIST</c> naming where each attribute really lives. Every entry
+    /// is an unnamed attribute, which is the common case for split <c>$DATA</c> and <c>$FILE_NAME</c>.
+    /// </summary>
+    public MftRecordBuilder AddAttributeListAttribute(params (uint AttributeType, long LowestVcn, uint RecordNumber)[] entries)
+    {
+        const int entryLength = 0x18;
+        int contentLength = entryLength * entries.Length;
+        int attributeLength = Align8(0x18 + contentLength);
+        int start = _attributeOffset;
+
+        WriteUInt32(start + 0x00, AttributeAttributeList);
+        WriteUInt32(start + 0x04, (uint)attributeLength);
+        _buffer[start + 0x08] = 0; // resident
+        _buffer[start + 0x09] = 0; // unnamed
+        WriteUInt16(start + 0x0A, 0);
+        WriteUInt16(start + 0x0C, 0);
+        WriteUInt16(start + 0x0E, 0);
+        WriteUInt32(start + 0x10, (uint)contentLength);
+        WriteUInt16(start + 0x14, 0x18);
+
+        int position = start + 0x18;
+        foreach ((uint attributeType, long lowestVcn, uint recordNumber) in entries)
+        {
+            WriteUInt32(position + 0x00, attributeType);
+            WriteUInt16(position + 0x04, entryLength);
+            _buffer[position + 0x06] = 0; // name length
+            _buffer[position + 0x07] = 0; // name offset
+            WriteInt64(position + 0x08, lowestVcn);
+            WriteUInt64(position + 0x10, recordNumber);
+            position += entryLength;
+        }
 
         _attributeOffset += attributeLength;
         return this;
@@ -118,4 +163,3 @@ internal sealed class MftRecordBuilder
     private void WriteInt64(int offset, long value) =>
         BinaryPrimitives.WriteInt64LittleEndian(_buffer.AsSpan(offset, 8), value);
 }
-

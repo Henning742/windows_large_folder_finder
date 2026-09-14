@@ -35,6 +35,14 @@ public sealed class MftIndex
             return;
         }
 
+        // An extension record holds part of another file's attributes. Those attributes are merged
+        // into the base record before it is added, so an extension record must never be counted as
+        // a file of its own.
+        if (record.IsExtensionRecord)
+        {
+            return;
+        }
+
         uint recordNumber = record.RecordNumber;
 
         if (recordNumber == RootRecordNumber)
@@ -327,4 +335,3 @@ public sealed class AggregationResult
         return false;
     }
 }
-

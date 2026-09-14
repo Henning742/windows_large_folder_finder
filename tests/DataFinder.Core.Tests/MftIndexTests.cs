@@ -112,6 +112,36 @@ public sealed class MftIndexTests
     }
 
     [Fact]
+    public void TheDirectFileCountIgnoresFilesInSubfolders()
+    {
+        var index = new MftIndex();
+        AddDirectory(index, 5, 5, ".");
+        AddDirectory(index, 700, 5, "parent");
+        AddDirectory(index, 701, 700, "child");
+
+        for (int i = 0; i < 10; i++)
+        {
+            AddFile(index, (uint)(800 + i), 700, $"top{i}.bin", 1024);
+        }
+
+        for (int i = 0; i < 20; i++)
+        {
+            AddFile(index, (uint)(900 + i), 701, $"deep{i}.bin", 1024);
+        }
+
+        AggregationResult aggregation = index.Build(
+            new ScanSettings { MinSizeBytes = 0, MinDirectFileCount = 0, SizeIncludesSubfolders = true },
+            @"D:\");
+
+        FolderResult parent = Assert.Single(aggregation.Results, result => result.FullPath == @"D:\parent");
+        Assert.Equal(10, parent.DirectFileCount);
+        Assert.Equal(30, parent.TotalFileCount);
+
+        FolderResult child = Assert.Single(aggregation.Results, result => result.FullPath == @"D:\parent\child");
+        Assert.Equal(20, child.DirectFileCount);
+    }
+
+    [Fact]
     public void FindsTheRecordNumberOfAKnownFolder()
     {
         var index = new MftIndex();
@@ -124,6 +154,35 @@ public sealed class MftIndexTests
         Assert.True(aggregation.TryGetRecordNumber(@"D:\parent", out uint recordNumber));
         Assert.Equal(110u, recordNumber);
         Assert.False(aggregation.TryGetRecordNumber(@"D:\missing", out _));
+    }
+
+    [Fact]
+    public void IgnoresExtensionRecords()
+    {
+        var index = new MftIndex();
+        AddDirectory(index, 5, 5, ".");
+
+        // The base record and an extension record that repeats the same name: the extension record
+        // is part of the base file and must not be counted as a second file.
+        byte[] baseRecord = new MftRecordBuilder(500, isDirectory: false)
+            .AddFileNameAttribute(5, "file.bin", 1024, isDirectory: false)
+            .AddNonResidentDataAttribute(1024)
+            .AddAttributeListAttribute((0x80, 0, 501))
+            .Build();
+
+        byte[] extension = new MftRecordBuilder(501, isDirectory: false)
+            .AsExtensionOf(500)
+            .AddFileNameAttribute(5, "file.bin", 1024, isDirectory: false)
+            .AddNonResidentDataAttribute(1024)
+            .Build();
+
+        Add(index, baseRecord, 500);
+        Add(index, extension, 501);
+
+        AggregationResult aggregation = index.Build(new ScanSettings(), @"D:\");
+
+        Assert.Equal(1, aggregation.Stats[5].DirectFileCount);
+        Assert.Equal(1024, aggregation.Stats[5].DirectSize);
     }
 
     private static void AddDirectory(MftIndex index, uint recordNumber, uint parent, string name)

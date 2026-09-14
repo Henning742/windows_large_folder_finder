@@ -47,30 +47,41 @@ public sealed class NtfsVolumeScanner
                 "The $MFT record could not be read. The volume may be encrypted (BitLocker) or damaged.");
         }
 
-        // Copy what is needed out of the record: the parser reuses the same object for every record.
-        byte[]? runlist = mftRecord.DataRunlist;
         long mftDataSize = mftRecord.DataSize;
         bool mftHasAttributeList = mftRecord.HasAttributeList;
 
-        if (mftDataSize <= 0 || runlist is null)
-        {
-            throw new NtfsScanException("The master file table does not expose any readable data runs.");
-        }
-
-        List<DataRun> runs = Runlist.Decode(runlist);
+        List<DataRun> runs = Runlist.DecodeExtents(mftRecord.DataExtents);
         if (runs.Count == 0)
         {
+            if (mftDataSize <= 0)
+            {
+                throw new NtfsScanException("The master file table does not expose any readable data runs.");
+            }
+
             long clusterCount = (mftDataSize + bootSector.BytesPerCluster - 1) / bootSector.BytesPerCluster;
             runs.Add(new DataRun(0, clusterCount, bootSector.MftStartCluster));
             warnings.Add(
                 "The $MFT data runs could not be decoded, so the table was read as a single contiguous block. " +
                 "On a heavily fragmented volume some folders may be missing.");
         }
+        else if (mftHasAttributeList)
+        {
+            // The $MFT's own $DATA attribute can continue in extension records. Read them so the
+            // whole table is available instead of stopping at the end of the first extent.
+            int knownExtents = mftRecord.DataExtents.Count;
+            ResolveMftExtents(raw, bootSector, recordSize, runs, mftDataSize, mftRecord);
 
-        if (mftHasAttributeList)
+            if (mftRecord.DataExtents.Count > knownExtents)
+            {
+                runs = Runlist.DecodeExtents(mftRecord.DataExtents);
+                mftDataSize = Math.Max(mftDataSize, mftRecord.DataSize);
+            }
+        }
+
+        if (mftHasAttributeList && !RunlistCoversTable(runs, bootSector.BytesPerCluster, mftDataSize))
         {
             warnings.Add(
-                "The $MFT uses an $ATTRIBUTE_LIST. If the master file table itself is fragmented, a few folders may be missing from the results.");
+                "The $MFT uses an $ATTRIBUTE_LIST that could not be fully resolved, so a few folders may be missing from the results.");
         }
 
         long recordCount = mftDataSize / recordSize;
@@ -78,9 +89,12 @@ public sealed class NtfsVolumeScanner
         var recordBuffer = new byte[recordSize];
         long recordsRead = 0;
         long recordsInUse = 0;
+        long unresolvedAttributeLists = 0;
 
         using (var reader = new MftRecordReader(raw, bootSector.BytesPerCluster, recordSize, runs, mftDataSize))
         {
+            var expander = new MftRecordExpander(reader, bootSector.BytesPerSector, recordSize);
+
             for (long recordNumber = 0; recordNumber < recordCount; recordNumber++)
             {
                 if ((recordNumber & CancellationCheckMask) == 0)
@@ -103,6 +117,14 @@ public sealed class NtfsVolumeScanner
                 if (parsed.InUse)
                 {
                     recordsInUse++;
+
+                    // A file whose attributes spilled into extension records is completed here,
+                    // before it is added, so the whole file is measured as one.
+                    if (parsed.HasAttributeList && !parsed.IsExtensionRecord && !expander.Expand(parsed))
+                    {
+                        unresolvedAttributeLists++;
+                    }
+
                     index.Add(parsed);
                 }
 
@@ -117,6 +139,12 @@ public sealed class NtfsVolumeScanner
                         index.DirectoryCount));
                 }
             }
+        }
+
+        if (unresolvedAttributeLists > 0)
+        {
+            warnings.Add(
+                $"{unresolvedAttributeLists:N0} files could not be fully read because their $ATTRIBUTE_LIST pointed at records that were missing or damaged.");
         }
 
         progress?.Report(new ScanProgress("Applying the rules", recordsRead, Math.Max(recordCount, 1), index.DirectoryCount));
@@ -139,5 +167,51 @@ public sealed class NtfsVolumeScanner
             Warnings = warnings,
         };
     }
-}
 
+    /// <summary>
+    /// Reads the extension records referenced by the <c>$MFT</c>'s own <c>$ATTRIBUTE_LIST</c> and
+    /// merges their <c>$DATA</c> run lists into the record, so a fragmented master file table can
+    /// be read in full. Records are read through the runs found so far; the extension records of
+    /// <c>$MFT</c> always live early enough in the table to be reachable.
+    /// </summary>
+    private static void ResolveMftExtents(
+        RawVolumeStream raw,
+        NtfsBootSector bootSector,
+        int recordSize,
+        IReadOnlyList<DataRun> runs,
+        long mftDataSize,
+        MftRecordParseResult mftRecord)
+    {
+        try
+        {
+            using var reader = new MftRecordReader(raw, bootSector.BytesPerCluster, recordSize, runs, mftDataSize);
+            var expander = new MftRecordExpander(reader, bootSector.BytesPerSector, recordSize, captureDataRunlists: true);
+            expander.Expand(mftRecord);
+        }
+        catch (NtfsScanException)
+        {
+            // A malformed list or run list simply leaves the runs as they were.
+        }
+    }
+
+    /// <summary>True when the runs reach the very end of the attribute they describe.</summary>
+    private static bool RunlistCoversTable(IReadOnlyList<DataRun> runs, int bytesPerCluster, long dataSize)
+    {
+        if (dataSize <= 0)
+        {
+            return true;
+        }
+
+        long coveredBytes = 0;
+        foreach (DataRun run in runs)
+        {
+            long end = run.EndVcn * bytesPerCluster;
+            if (end > coveredBytes)
+            {
+                coveredBytes = end;
+            }
+        }
+
+        return coveredBytes >= dataSize;
+    }
+}

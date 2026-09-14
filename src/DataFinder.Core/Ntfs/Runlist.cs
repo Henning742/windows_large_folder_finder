@@ -67,6 +67,27 @@ public static class Runlist
         return total;
     }
 
+    /// <summary>
+    /// Decodes every extent of a split attribute and stitches them into one run list. Each extent's
+    /// mapping pairs start at virtual cluster 0, so they are shifted to the extent's own
+    /// <see cref="DataRunExtent.LowestVcn"/> before the runs are put in virtual cluster order.
+    /// </summary>
+    public static List<DataRun> DecodeExtents(IEnumerable<DataRunExtent> extents)
+    {
+        var runs = new List<DataRun>();
+
+        foreach (DataRunExtent extent in extents)
+        {
+            foreach (DataRun run in Decode(extent.Runlist))
+            {
+                runs.Add(run with { StartVcn = run.StartVcn + extent.LowestVcn });
+            }
+        }
+
+        runs.Sort(static (left, right) => left.StartVcn.CompareTo(right.StartVcn));
+        return runs;
+    }
+
     private static long ReadUnsigned(ReadOnlySpan<byte> bytes)
     {
         long value = 0;
@@ -92,4 +113,3 @@ public static class Runlist
         return value;
     }
 }
-

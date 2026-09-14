@@ -13,3 +13,9 @@ public readonly record struct DataRun(long StartVcn, long ClusterCount, long Sta
     public long StartByteOffset(int bytesPerCluster) => StartLcn * bytesPerCluster;
 }
 
+/// <summary>
+/// One extent of a non-resident attribute: the raw mapping pairs of a single MFT record plus the
+/// virtual cluster number the extent starts at. A large attribute that does not fit in one record
+/// is stored as several extents, each described by its own record and its own <c>LowestVcn</c>.
+/// </summary>
+public sealed record DataRunExtent(long LowestVcn, byte[] Runlist);

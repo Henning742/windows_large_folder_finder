@@ -45,6 +45,9 @@ public sealed class MftRecordParser
         _result.InUse = (flags & 0x0001) != 0;
         _result.IsDirectory = (flags & 0x0002) != 0;
 
+        // A non-zero base reference marks this record as an extension of another record.
+        _result.BaseRecordNumber = (uint)(ReadUInt64(record, 0x20) & 0x0000FFFFFFFFFFFFUL);
+
         if (!_result.InUse)
         {
             return _result;
@@ -92,6 +95,7 @@ public sealed class MftRecordParser
             {
                 case AttributeAttributeList:
                     _result.HasAttributeList = true;
+                    ReadAttributeListAttribute(record, position, length, _result);
                     break;
 
                 // $FILE_NAME is an unnamed attribute: the file name lives in its content.
@@ -114,7 +118,7 @@ public sealed class MftRecordParser
 
                     if (captureDataRunlist && nonResident == 1)
                     {
-                        CaptureRunlist(record, position, length, _result);
+                        CaptureDataExtent(record, position, length, _result);
                     }
 
                     break;
@@ -127,13 +131,21 @@ public sealed class MftRecordParser
         _result.HasData = hasUnnamedData;
         _result.DataSize = hasUnnamedData ? Math.Max(bestDataSize, 0) : 0;
 
-        // DOS style 8.3 names duplicate a real name; drop them when a long name exists.
-        if (_result.Links.Count > 1 && _result.Links.Exists(link => link.NameNamespace != DosNamespace))
-        {
-            _result.Links.RemoveAll(link => link.NameNamespace == DosNamespace);
-        }
+        ApplyDosNameFilter(_result);
 
         return _result;
+    }
+
+    /// <summary>
+    /// DOS style 8.3 names duplicate a real name; drop them when a long name exists. Shared with
+    /// the attribute-list merging so a name pulled out of an extension record is filtered too.
+    /// </summary>
+    internal static void ApplyDosNameFilter(MftRecordParseResult result)
+    {
+        if (result.Links.Count > 1 && result.Links.Exists(link => link.NameNamespace != DosNamespace))
+        {
+            result.Links.RemoveAll(link => link.NameNamespace == DosNamespace);
+        }
     }
 
     /// <summary>
@@ -213,13 +225,59 @@ public sealed class MftRecordParser
             isDirectory));
     }
 
-    private static void CaptureRunlist(ReadOnlySpan<byte> record, int attributeOffset, int attributeLength, MftRecordParseResult result)
+    private static void ReadAttributeListAttribute(ReadOnlySpan<byte> record, int attributeOffset, int attributeLength, MftRecordParseResult result)
     {
-        if (result.DataRunlist is not null)
+        byte nonResident = record[attributeOffset + 0x08];
+        if (nonResident != 0)
+        {
+            // A non-resident $ATTRIBUTE_LIST would have to be read through its own data runs, which
+            // needs the volume. That layout is extremely rare, so it is reported instead.
+            result.AttributeListIsNonResident = true;
+            return;
+        }
+
+        int contentLength = (int)ReadUInt32(record, attributeOffset + 0x10);
+        int contentOffset = ReadUInt16(record, attributeOffset + 0x14);
+        int start = attributeOffset + contentOffset;
+        int end = attributeOffset + attributeLength;
+
+        if (contentOffset <= 0 || start >= end || end > record.Length)
         {
             return;
         }
 
+        int listEnd = Math.Min(end, start + contentLength);
+        int position = start;
+
+        while (position + 0x18 <= listEnd)
+        {
+            uint attributeType = ReadUInt32(record, position);
+            int entryLength = ReadUInt16(record, position + 0x04);
+            int nameLength = record[position + 0x06];
+            int nameOffset = record[position + 0x07];
+            long lowestVcn = ReadInt64(record, position + 0x08);
+            uint recordNumber = (uint)(ReadUInt64(record, position + 0x10) & 0x0000FFFFFFFFFFFFUL);
+
+            if (entryLength < 0x18 || position + entryLength > listEnd)
+            {
+                break;
+            }
+
+            string name = string.Empty;
+            if (nameLength > 0 &&
+                nameOffset >= 0x18 &&
+                nameOffset + (nameLength * 2) <= entryLength)
+            {
+                name = Encoding.Unicode.GetString(record.Slice(position + nameOffset, nameLength * 2));
+            }
+
+            result.AttributeList.Add(new AttributeListEntry(attributeType, lowestVcn, recordNumber, name));
+            position += entryLength;
+        }
+    }
+
+    private static void CaptureDataExtent(ReadOnlySpan<byte> record, int attributeOffset, int attributeLength, MftRecordParseResult result)
+    {
         int runlistOffset = ReadUInt16(record, attributeOffset + 0x20);
         int start = attributeOffset + runlistOffset;
         int end = attributeOffset + attributeLength;
@@ -240,7 +298,14 @@ public sealed class MftRecordParser
             }
         }
 
-        result.DataRunlist = record.Slice(start, length).ToArray();
+        // Each extent's mapping pairs are relative to its own starting virtual cluster number.
+        long lowestVcn = ReadInt64(record, attributeOffset + 0x10);
+        if (result.DataExtents.Exists(extent => extent.LowestVcn == lowestVcn))
+        {
+            return;
+        }
+
+        result.DataExtents.Add(new DataRunExtent(lowestVcn, record.Slice(start, length).ToArray()));
     }
 
     private static ushort ReadUInt16(ReadOnlySpan<byte> buffer, int offset) =>

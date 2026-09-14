@@ -5,7 +5,7 @@ namespace DataFinder.Core.Ntfs;
 /// is usually fragmented, so every record is translated from a virtual cluster number to a
 /// physical byte offset through the data runs of $MFT itself.
 /// </summary>
-public sealed class MftRecordReader : IDisposable
+public sealed class MftRecordReader : IDisposable, IMftRecordSource
 {
     private readonly RawVolumeStream _volume;
     private readonly int _bytesPerCluster;
@@ -38,6 +38,9 @@ public sealed class MftRecordReader : IDisposable
     }
 
     public long RecordCount => _recordSize > 0 ? _mftDataSize / _recordSize : 0;
+
+    /// <summary>Copy of one record, used when following an <c>$ATTRIBUTE_LIST</c> into another record.</summary>
+    public bool TryReadRecord(uint recordNumber, byte[] destination) => TryGetRecord(recordNumber, destination);
 
     /// <summary>Copies one record into <paramref name="destination"/>. Returns false at the end of the table.</summary>
     public bool TryGetRecord(long recordNumber, byte[] destination)
@@ -169,4 +172,3 @@ public sealed class MftRecordReader : IDisposable
         return -1;
     }
 }
-

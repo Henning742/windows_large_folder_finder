@@ -17,6 +17,16 @@ public sealed class MftRecordParseResult
 {
     public uint RecordNumber { get; set; }
 
+    /// <summary>
+    /// The record this one belongs to when it is an extension record, or 0 when it is a base
+    /// record. NTFS moves attributes that do not fit out of the base record into extension
+    /// records, and those extension records must never be counted as files of their own.
+    /// </summary>
+    public uint BaseRecordNumber { get; set; }
+
+    /// <summary>True when this record is an extension of another record rather than a file itself.</summary>
+    public bool IsExtensionRecord => BaseRecordNumber != 0 && BaseRecordNumber != RecordNumber;
+
     public bool InUse { get; set; }
 
     public bool IsDirectory { get; set; }
@@ -31,22 +41,33 @@ public sealed class MftRecordParseResult
     /// <summary>True when the record continues in another record (a fragmented attribute).</summary>
     public bool HasAttributeList { get; set; }
 
-    /// <summary>Raw data run list of the unnamed $DATA attribute. Only captured when asked for.</summary>
-    public byte[]? DataRunlist { get; set; }
+    /// <summary>True when the $ATTRIBUTE_LIST is non-resident, so its own entries could not be read.</summary>
+    public bool AttributeListIsNonResident { get; set; }
+
+    /// <summary>The entries of the $ATTRIBUTE_LIST, each naming the record that holds an attribute.</summary>
+    public List<AttributeListEntry> AttributeList { get; } = new();
+
+    /// <summary>
+    /// The extents of the unnamed $DATA attribute. Usually a single extent; more than one when the
+    /// attribute is spread over several records. Only captured when asked for.
+    /// </summary>
+    public List<DataRunExtent> DataExtents { get; } = new();
 
     public List<FileNameLink> Links { get; } = new();
 
     internal void Reset()
     {
         RecordNumber = 0;
+        BaseRecordNumber = 0;
         InUse = false;
         IsDirectory = false;
         IsCorrupt = false;
         HasData = false;
         DataSize = 0;
         HasAttributeList = false;
-        DataRunlist = null;
+        AttributeListIsNonResident = false;
+        AttributeList.Clear();
+        DataExtents.Clear();
         Links.Clear();
     }
 }
-

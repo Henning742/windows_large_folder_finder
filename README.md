@@ -113,8 +113,10 @@ Two details are worth knowing, because they decide what shows up:
 - Only local NTFS volumes are offered. FAT32, exFAT, network shares and non-Windows file systems
   cannot be read this way.
 - A **BitLocker locked** volume cannot be scanned; Windows refuses the read and the app reports it.
-- If `$MFT` itself uses an `$ATTRIBUTE_LIST` (only on volumes with an extremely fragmented master
-  file table) the app warns you: a handful of folders may be missing from the results.
+- When an `$ATTRIBUTE_LIST` spreads a file's attributes over several MFT records, the app follows
+  the list and merges those records, so split `$DATA` and `$FILE_NAME` attributes are counted in
+  full. The same is done for `$MFT` itself, so a fragmented master file table is read completely.
+  The app only warns if such a list points at records that are missing or damaged.
 - Deleted records are ignored. Hard links show up once per name. Compressed and sparse files
   count their logical size.
 - The folder tree is kept in memory so the preview pane is instant. Budget roughly 100 to 200 MB
@@ -137,8 +139,8 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-46 tests cover the boot sector geometry, data run list decoding (including signed offsets and
-sparse runs), MFT record parsing (update sequence fix-ups, DOS name filtering, hard links,
-corrupt records), the folder tree and rule evaluation, the human readable size parser, and the
-text format round trip.
-
+59 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+sparse runs and multi-extent attributes), MFT record parsing (update sequence fix-ups, DOS name
+filtering, hard links, corrupt records, attribute list entries), resolving an `$ATTRIBUTE_LIST`
+across extension records (split `$DATA`, split `$FILE_NAME`, cycles, missing records), the folder
+tree and rule evaluation, the human readable size parser, and the text format round trip.

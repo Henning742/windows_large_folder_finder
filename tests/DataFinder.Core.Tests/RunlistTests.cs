@@ -52,5 +52,21 @@ public sealed class RunlistTests
         Assert.Equal(2, run.ClusterCount);
         Assert.Equal(0x100, run.StartLcn);
     }
-}
 
+    [Fact]
+    public void CombinesTheExtentsOfASplitAttributeInVirtualClusterOrder()
+    {
+        var extents = new List<DataRunExtent>
+        {
+            // The second extent is listed first on purpose: the runs must be ordered by VCN anyway.
+            new(4, new byte[] { 0x11, 0x02, 0x20, 0x00 }),
+            new(0, new byte[] { 0x11, 0x04, 0x10, 0x00 }),
+        };
+
+        List<DataRun> runs = Runlist.DecodeExtents(extents);
+
+        Assert.Equal(2, runs.Count);
+        Assert.Equal(new DataRun(0, 4, 0x10), runs[0]);
+        Assert.Equal(new DataRun(4, 2, 0x20), runs[1]);
+    }
+}
