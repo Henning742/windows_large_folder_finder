@@ -16,7 +16,7 @@ public sealed class ResultFileFormatTests
         };
 
         string text = ResultFileFormat.Serialize(results, new ScanSettings(), generatedAt: DateTimeOffset.UnixEpoch);
-        string[] lines = text.Split('\n');
+        string[] lines = SplitLines(text);
 
         Assert.StartsWith("# NTFS Folder Finder results", lines[0]);
         Assert.Contains(lines, line => line.StartsWith("# rules:", StringComparison.Ordinal));
@@ -74,5 +74,12 @@ public sealed class ResultFileFormatTests
         SizeBytes = size,
         TotalSizeBytes = size,
     };
-}
 
+    /// <summary>
+    /// Splits the serialized text into lines. The writer ends its lines with the newline of the
+    /// machine it runs on ("\r\n" on Windows, "\n" elsewhere), so these assertions must not care
+    /// which one it happened to be.
+    /// </summary>
+    private static string[] SplitLines(string text) =>
+        text.Split('\n').Select(line => line.TrimEnd('\r')).ToArray();
+}
