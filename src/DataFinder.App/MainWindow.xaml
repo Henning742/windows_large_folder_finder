@@ -40,17 +40,26 @@
       </DockPanel>
     </Border>
 
-    <!-- Elevation hint -->
-    <Border Grid.Row="1" Margin="0,8,0,0" Padding="10" CornerRadius="4"
-            Background="#FFF6DA" BorderBrush="#E5C978" BorderThickness="1"
-            Visibility="{Binding NeedsElevation, Converter={StaticResource BoolToVisibility}}">
-      <DockPanel>
-        <Button DockPanel.Dock="Right" Style="{StaticResource ToolbarButton}"
-                Content="Restart as administrator" Command="{Binding RelaunchElevatedCommand}" />
-        <TextBlock TextWrapping="Wrap"
-                   Text="Reading the NTFS master file table needs administrator rights. Restart the app elevated, otherwise Windows will refuse the scan." />
-      </DockPanel>
-    </Border>
+    <!-- Elevation hint and scan warnings -->
+    <StackPanel Grid.Row="1">
+      <Border Margin="0,8,0,0" Padding="10" CornerRadius="4"
+              Background="#FFF6DA" BorderBrush="#E5C978" BorderThickness="1"
+              Visibility="{Binding NeedsElevation, Converter={StaticResource BoolToVisibility}}">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Style="{StaticResource ToolbarButton}"
+                  Content="Restart as administrator" Command="{Binding RelaunchElevatedCommand}" />
+          <TextBlock TextWrapping="Wrap"
+                     Text="Reading the NTFS master file table needs administrator rights. Restart the app elevated, otherwise Windows will refuse the scan." />
+        </DockPanel>
+      </Border>
+
+      <Border Margin="0,8,0,0" Padding="10" CornerRadius="4"
+              Background="#FDE7E9" BorderBrush="#B00020" BorderThickness="1"
+              Visibility="{Binding HasScanWarning, Converter={StaticResource BoolToVisibility}}">
+        <TextBlock TextWrapping="Wrap" Foreground="#B00020" FontWeight="SemiBold"
+                   Text="{Binding ScanWarning}" />
+      </Border>
+    </StackPanel>
 
     <Grid Grid.Row="2" Margin="0,8,0,0">
       <Grid.ColumnDefinitions>

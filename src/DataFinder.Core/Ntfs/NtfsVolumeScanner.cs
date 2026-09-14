@@ -90,6 +90,7 @@ public sealed class NtfsVolumeScanner
         long recordsRead = 0;
         long recordsInUse = 0;
         long unresolvedAttributeLists = 0;
+        bool mftReadIncomplete = false;
 
         using (var reader = new MftRecordReader(raw, bootSector.BytesPerCluster, recordSize, runs, mftDataSize))
         {
@@ -102,11 +103,25 @@ public sealed class NtfsVolumeScanner
                     cancellationToken.ThrowIfCancellationRequested();
                 }
 
+                // Report for every tick of the loop, whatever the record turns out to be, so the
+                // bar keeps moving even while unreadable regions are being skipped.
+                if (progress is not null && recordNumber % RecordsPerProgressReport == 0)
+                {
+                    progress.Report(new ScanProgress(
+                        "Reading the master file table",
+                        recordNumber,
+                        recordCount,
+                        index.DirectoryCount));
+                }
+
                 if (!reader.TryGetRecord(recordNumber, recordBuffer))
                 {
+                    mftReadIncomplete = true;
                     warnings.Add($"The master file table ended early, at record {recordNumber:N0} of {recordCount:N0}.");
                     break;
                 }
+
+                recordsRead = recordNumber + 1;
 
                 MftRecordParseResult? parsed = parser.Parse(recordBuffer, bootSector.BytesPerSector, (uint)recordNumber);
                 if (parsed is null)
@@ -126,17 +141,6 @@ public sealed class NtfsVolumeScanner
                     }
 
                     index.Add(parsed);
-                }
-
-                recordsRead = recordNumber + 1;
-
-                if (progress is not null && recordNumber % RecordsPerProgressReport == 0)
-                {
-                    progress.Report(new ScanProgress(
-                        "Reading the master file table",
-                        recordNumber,
-                        recordCount,
-                        index.DirectoryCount));
                 }
             }
         }
@@ -163,7 +167,9 @@ public sealed class NtfsVolumeScanner
             Aggregation = aggregation,
             Elapsed = stopwatch.Elapsed,
             RecordsRead = recordsRead,
+            ExpectedRecordCount = recordCount,
             RecordsInUse = recordsInUse,
+            MftReadCompleted = !mftReadIncomplete,
             Warnings = warnings,
         };
     }

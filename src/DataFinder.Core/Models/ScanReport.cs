@@ -20,8 +20,16 @@ public sealed class ScanReport
 
     public long RecordsRead { get; init; }
 
+    /// <summary>How many records the master file table should have held, from its $DATA size.</summary>
+    public long ExpectedRecordCount { get; init; }
+
     public long RecordsInUse { get; init; }
+
+    /// <summary>
+    /// False when the master file table could not be read in full, so the results are known to be
+    /// incomplete. This is the difference between "found few folders" and "could not look".
+    /// </summary>
+    public bool MftReadCompleted { get; init; } = true;
 
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }
-

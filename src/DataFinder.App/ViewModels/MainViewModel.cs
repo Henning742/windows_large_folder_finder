@@ -48,6 +48,7 @@ public sealed class MainViewModel : ObservableObject
     private double _progressValue;
     private string _statusText = "Ready. Choose a drive and press Scan.";
     private string _resultSummary = "No results yet.";
+    private string _scanWarning = string.Empty;
 
     public MainViewModel(IDialogService dialogs)
     {
@@ -278,6 +279,21 @@ public sealed class MainViewModel : ObservableObject
         private set => SetProperty(ref _resultSummary, value);
     }
 
+    /// <summary>Set when a scan could not read the whole master file table, so the results are incomplete.</summary>
+    public string ScanWarning
+    {
+        get => _scanWarning;
+        private set
+        {
+            if (SetProperty(ref _scanWarning, value))
+            {
+                OnPropertyChanged(nameof(HasScanWarning));
+            }
+        }
+    }
+
+    public bool HasScanWarning => !string.IsNullOrEmpty(ScanWarning);
+
     public bool IsElevated
     {
         get => _isElevated;
@@ -384,9 +400,21 @@ public sealed class MainViewModel : ObservableObject
             }
 
             UpdateResultSummary();
-            StatusText =
-                $"Scan finished in {report.Elapsed.TotalSeconds:0.0} s - {report.RecordsInUse:N0} records in use, " +
-                $"{report.Index.DirectoryCount:N0} folders indexed.";
+
+            if (report.MftReadCompleted)
+            {
+                ScanWarning = string.Empty;
+                StatusText =
+                    $"Scan finished in {report.Elapsed.TotalSeconds:0.0} s - {report.RecordsInUse:N0} records in use, " +
+                    $"{report.Index.DirectoryCount:N0} folders indexed.";
+            }
+            else
+            {
+                ScanWarning =
+                    $"The master file table could only be read to record {report.RecordsRead:N0} of {report.ExpectedRecordCount:N0}, " +
+                    "so folders on the rest of the volume were never seen. The list below is incomplete.";
+                StatusText = "Scan finished, but the master file table could not be read in full - the results are incomplete.";
+            }
 
             if (Results.Count > 0)
             {
@@ -585,6 +613,7 @@ public sealed class MainViewModel : ObservableObject
         _index = null;
         _aggregation = null;
         _scannedVolume = null;
+        ScanWarning = string.Empty;
     }
 
     private void CancelRunningWork() => _scanCancellation?.Cancel();
