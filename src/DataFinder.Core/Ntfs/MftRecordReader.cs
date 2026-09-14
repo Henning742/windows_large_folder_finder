@@ -132,7 +132,7 @@ public sealed class MftRecordReader : IDisposable
         }
         else
         {
-            long physicalOffset = (run.StartLcn * _bytesPerCluster) + offsetInsideCluster;
+            long physicalOffset = ((run.StartLcn + (vcn - run.StartVcn)) * _bytesPerCluster) + offsetInsideCluster;
             read = _volume.ReadAligned(physicalOffset, _buffer, _validBytes, wanted);
         }
 
