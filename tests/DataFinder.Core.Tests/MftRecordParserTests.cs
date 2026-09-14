@@ -150,6 +150,31 @@ public sealed class MftRecordParserTests
     }
 
     [Fact]
+    public void CapturesARunListThatContainsZeroBytes()
+    {
+        // Cluster 0x4000 and the delta to cluster 0x8000 both contain a 0x00 byte. Scanning for the
+        // first zero byte used to stop the capture early and hand the reader a truncated run list,
+        // so the tail of the master file table could never be read.
+        byte[] runList = { 0x21, 0x64, 0x00, 0x40, 0x21, 0x64, 0x00, 0x40, 0x00 };
+
+        byte[] record = new MftRecordBuilder(0, isDirectory: false)
+            .AddFileNameAttribute(parentRecordNumber: 5, name: "$MFT", size: 4096, isDirectory: false)
+            .AddNonResidentDataAttribute(size: 4096, runList: runList)
+            .Build();
+
+        MftRecordParseResult? result = new MftRecordParser().Parse(record, BytesPerSector, 0, captureDataRunlist: true);
+
+        Assert.NotNull(result);
+        DataRunExtent extent = Assert.Single(result!.DataExtents);
+        Assert.Equal(runList, extent.Runlist);
+
+        List<DataRun> runs = Runlist.Decode(extent.Runlist);
+        Assert.Equal(2, runs.Count);
+        Assert.Equal(new DataRun(0, 0x64, 0x4000), runs[0]);
+        Assert.Equal(new DataRun(0x64, 0x64, 0x8000), runs[1]);
+    }
+
+    [Fact]
     public void CapturesAttributeListEntries()
     {
         byte[] record = new MftRecordBuilder(42, isDirectory: false)

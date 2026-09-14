@@ -287,17 +287,6 @@ public sealed class MftRecordParser
             return;
         }
 
-        // The run list ends with a zero byte; whatever follows it inside the record is padding.
-        int length = end - start;
-        for (int i = 0; i < length; i++)
-        {
-            if (record[start + i] == 0)
-            {
-                length = i + 1;
-                break;
-            }
-        }
-
         // Each extent's mapping pairs are relative to its own starting virtual cluster number.
         long lowestVcn = ReadInt64(record, attributeOffset + 0x10);
         if (result.DataExtents.Exists(extent => extent.LowestVcn == lowestVcn))
@@ -305,7 +294,39 @@ public sealed class MftRecordParser
             return;
         }
 
-        result.DataExtents.Add(new DataRunExtent(lowestVcn, record.Slice(start, length).ToArray()));
+        result.DataExtents.Add(new DataRunExtent(lowestVcn, record.Slice(start, MeasureRunlist(record, start, end)).ToArray()));
+    }
+
+    /// <summary>
+    /// Length of the run list starting at <paramref name="start"/>, including its terminator. The
+    /// list is measured by walking its own entries, not by looking for the first zero byte: a
+    /// mapping pairs field may legitimately contain 0x00 (an LCN's low byte often does, for
+    /// example cluster 0x4000), and stopping there truncated the run list the reader depends on.
+    /// </summary>
+    private static int MeasureRunlist(ReadOnlySpan<byte> record, int start, int limit)
+    {
+        int position = start;
+
+        while (position < limit)
+        {
+            byte header = record[position];
+            if (header == 0)
+            {
+                return (position - start) + 1;
+            }
+
+            int lengthBytes = header & 0x0F;
+            int offsetBytes = header >> 4;
+            if (lengthBytes == 0 || lengthBytes > 8 || offsetBytes > 8)
+            {
+                break;
+            }
+
+            position += 1 + lengthBytes + offsetBytes;
+        }
+
+        // Malformed list: keep everything and let the decoder decide where to stop.
+        return limit - start;
     }
 
     private static ushort ReadUInt16(ReadOnlySpan<byte> buffer, int offset) =>
