@@ -1,22 +1,9 @@
 name: build
 
-# NOTE: GitHub only runs workflows that live in the repository root's .github/workflows
-# folder. See the "Continuous integration" section of README.md.
-#
-# The path below is where this project sits inside the paper_scripts repository.
-# If this folder is ever moved to the top level of its own repository, replace
-# "windows_project_data_finder" with "." everywhere it appears in this file.
+# This workflow lives at the repository root, which is also where DataFinder.sln sits, so no
+# working directory has to be configured: every step runs from the repository root.
 
-on:
-  push:
-    paths:
-      - "windows_project_data_finder/**"
-      - ".github/workflows/build.yml"
-  pull_request:
-    paths:
-      - "windows_project_data_finder/**"
-      - ".github/workflows/build.yml"
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 
 permissions:
   contents: read
@@ -25,9 +12,6 @@ jobs:
   core-tests:
     name: Core tests (ubuntu)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: windows_project_data_finder
     steps:
       - uses: actions/checkout@v4
 
@@ -46,9 +30,6 @@ jobs:
   windows-app:
     name: Build and publish (windows)
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: windows_project_data_finder
     steps:
       - uses: actions/checkout@v4
 
@@ -84,7 +65,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DataFinder-win-x64
-          path: windows_project_data_finder/publish/
+          path: publish/
           if-no-files-found: error
 
 # Optional: publish a GitHub release whenever a version tag is pushed.
@@ -105,4 +86,3 @@ jobs:
 #      - uses: softprops/action-gh-release@v2
 #        with:
 #          files: DataFinder-win-x64.zip
-

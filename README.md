@@ -63,26 +63,16 @@ The window itself cannot be launched off Windows; the build and the tests are th
 
 ## Continuous integration
 
-`build.yml` (in this folder) runs two jobs:
+`.github/workflows/build.yml` runs two jobs on every push and pull request:
 
 | Job | Runner | What it does |
 |---|---|---|
 | `core-tests` | `ubuntu-latest` | Builds and runs the unit tests for the scanning engine. |
 | `windows-app` | `windows-latest` | Builds the whole solution, runs the tests again, then publishes the self-contained `DataFinder.exe` and uploads it as the `DataFinder-win-x64` artifact. |
 
-**One manual step:** GitHub only runs workflow files that live in the repository root's
-`.github/workflows` folder. This project sits in `paper_scripts/windows_project_data_finder`, so
-move or copy the file to:
-
-```
-paper_scripts/.github/workflows/build.yml
-```
-
-The workflow is written for that location: it uses `working-directory:
-windows_project_data_finder` and an artifact path of `windows_project_data_finder/publish/`. If
-this folder is ever promoted to the top level of its own repository, replace
-`windows_project_data_finder` with `.` in those places (three lines, each marked near the top of
-the file).
+The workflow lives at the repository root and runs every command from there, so there is
+nothing to configure. Download the built `DataFinder.exe` from the *Artifacts* section of a
+workflow run.
 
 ## The result file format
 
