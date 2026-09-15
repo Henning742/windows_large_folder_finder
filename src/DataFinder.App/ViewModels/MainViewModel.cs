@@ -30,6 +30,9 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>One report per scanned volume, kept so the preview pane can read the folder tree.</summary>
     private readonly List<ScanReport> _reports = new();
 
+    /// <summary>The folders whose notes were typed or changed since the last export.</summary>
+    private readonly HashSet<FolderResult> _unsavedComments = new();
+
     private string? _importedFrom;
     private ScanSettings? _lastSettings;
     private ScanTimeEstimator? _scanRemaining;
@@ -184,12 +187,29 @@ public sealed class MainViewModel : ObservableObject
             }
 
             // The note lives on the folder, and the tree row shows it: the node forwards the change.
-            if (SelectedResultNode is { Result: not null } node)
+            // Only a real change counts as unsaved; picking another row also lands here.
+            if (SelectedResultNode is { Result: not null } node &&
+                !string.Equals(node.Comment, value, StringComparison.Ordinal))
             {
                 node.Comment = value;
+                MarkCommentChanged(node.Result);
             }
         }
     }
+
+    /// <summary>True when notes have been typed or changed that the report does not have yet.</summary>
+    public bool HasUnsavedComments => _unsavedComments.Count > 0;
+
+    /// <summary>
+    /// The window title says so too, because the note is easy to miss: the app keeps a marker in the
+    /// title bar while there are notes that no export has picked up.
+    /// </summary>
+    public string WindowTitle => _unsavedComments.Count switch
+    {
+        0 => "NTFS Folder Finder",
+        1 => "NTFS Folder Finder - 1 comment not saved",
+        _ => $"NTFS Folder Finder - {_unsavedComments.Count} comments not saved",
+    };
 
     public FileEntry? SelectedContent
     {
@@ -363,6 +383,10 @@ public sealed class MainViewModel : ObservableObject
         _previewCancellation?.Cancel();
     }
 
+    /// <summary>True when the window may close. False when the user wants to keep their notes.</summary>
+    public bool CanClose() =>
+        ConfirmDiscardingComments("Closing the app throws them away.");
+
     /// <summary>Double clicking an item in the contents list: folders are opened, files are launched.</summary>
     public void ActivateSelectedContent()
     {
@@ -408,6 +432,11 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
+        if (!ConfirmDiscardingComments("Starting a new scan replaces the list, and the notes go with it."))
+        {
+            return;
+        }
+
         ScanSummary = ScanSetup.DescribeSelection();
 
         _scanCancellation = new CancellationTokenSource();
@@ -415,6 +444,7 @@ public sealed class MainViewModel : ObservableObject
         ClearSession();
         _lastSettings = settings;
         Results.Clear();
+        MarkCommentsSaved();
         RebuildResultTree();
         UpdateResultSummary();
         ProgressValue = 0;
@@ -553,6 +583,11 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task ImportAsync()
     {
+        if (!ConfirmDiscardingComments("Importing replaces the list, and the notes go with it."))
+        {
+            return;
+        }
+
         string? file = _dialogs.OpenReportFile("Import folder list");
         if (file is null)
         {
@@ -588,6 +623,7 @@ public sealed class MainViewModel : ObservableObject
         // this list is exported as.
         _lastSettings = null;
         Results.Clear();
+        MarkCommentsSaved();
         RebuildResultTree();
         UpdateResultSummary();
         ProgressValue = 0;
@@ -705,6 +741,7 @@ public sealed class MainViewModel : ObservableObject
                 importedFrom: _importedFrom);
 
             CsvResultFormat.Save(file, Results, metadata);
+            MarkCommentsSaved();
 
             StatusText =
                 $"Exported {Results.Count:N0} folders to {file}, with the notes about the report in " +
@@ -714,6 +751,46 @@ public sealed class MainViewModel : ObservableObject
         {
             _dialogs.ShowError(exception.Message, "Export failed");
         }
+    }
+
+    private void MarkCommentChanged(FolderResult folder)
+    {
+        if (_unsavedComments.Add(folder))
+        {
+            OnPropertyChanged(nameof(HasUnsavedComments));
+            OnPropertyChanged(nameof(WindowTitle));
+        }
+    }
+
+    /// <summary>The notes are in the report now, or the list they belonged to is gone.</summary>
+    private void MarkCommentsSaved()
+    {
+        if (_unsavedComments.Count == 0)
+        {
+            return;
+        }
+
+        _unsavedComments.Clear();
+        OnPropertyChanged(nameof(HasUnsavedComments));
+        OnPropertyChanged(nameof(WindowTitle));
+    }
+
+    /// <summary>
+    /// Asks before notes that were never exported are thrown away. <paramref name="whatHappens"/>
+    /// finishes the sentence "…and the notes go with it".
+    /// </summary>
+    private bool ConfirmDiscardingComments(string whatHappens)
+    {
+        if (!HasUnsavedComments)
+        {
+            return true;
+        }
+
+        string notes = _unsavedComments.Count == 1
+            ? "1 folder has a note that has not been exported yet."
+            : $"{_unsavedComments.Count} folders have notes that have not been exported yet.";
+
+        return _dialogs.Confirm($"{notes}\n\n{whatHappens}\n\nContinue?", "Comments not saved");
     }
 
     /// <summary>A file name that says where the folders came from and when they were found.</summary>
@@ -731,8 +808,14 @@ public sealed class MainViewModel : ObservableObject
 
     private void ClearResults()
     {
+        if (!ConfirmDiscardingComments("Clearing the list throws them away."))
+        {
+            return;
+        }
+
         Results.Clear();
         ClearSession();
+        MarkCommentsSaved();
         RebuildResultTree();
         UpdateResultSummary();
         ShowFolder(string.Empty);

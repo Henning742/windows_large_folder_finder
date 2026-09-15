@@ -1,7 +1,7 @@
 <Window x:Class="DataFinder.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="NTFS Folder Finder"
+        Title="{Binding WindowTitle}"
         Height="820" Width="1440" MinHeight="560" MinWidth="1024"
         WindowStartupLocation="CenterScreen">
 
@@ -179,11 +179,16 @@
                      TextTrimming="CharacterEllipsis" ToolTip="{Binding ActiveFolderPath}" />
         </DockPanel>
 
-        <DockPanel Grid.Row="1" Margin="0,6,0,0" IsEnabled="{Binding HasSelectedFolder}">
+        <DockPanel Grid.Row="1" Margin="0,6,0,0">
           <TextBlock DockPanel.Dock="Left" Text="Comment" Style="{StaticResource FieldLabel}" />
+          <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
+                     Foreground="#B26A00" FontWeight="SemiBold"
+                     Text="not exported yet"
+                     ToolTip="Export writes the notes into the comment column of the CSV report. Until then they only live in this window."
+                     Visibility="{Binding HasUnsavedComments, Converter={StaticResource BoolToVisibility}}" />
           <TextBox Text="{Binding SelectedComment, UpdateSourceTrigger=PropertyChanged}"
                    IsEnabled="{Binding HasSelectedFolder}"
-                   ToolTip="A note about the selected folder. Exported in the Comment column of the CSV and read back on import." />
+                   ToolTip="A note about the selected folder. Export writes it to the Comment column of the CSV; import reads it back." />
         </DockPanel>
 
         <Border Grid.Row="2" Margin="0,6,0,0" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4">

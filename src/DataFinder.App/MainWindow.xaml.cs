@@ -23,7 +23,17 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e) => await ViewModel.InitializeAsync();
 
-    private void OnClosing(object? sender, CancelEventArgs e) => ViewModel.OnClosing();
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        // Notes that were never exported are worth a question before they are gone for good.
+        if (!ViewModel.CanClose())
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        ViewModel.OnClosing();
+    }
 
     /// <summary>
     /// Opens the setup dialog. It closes with "true" when the user asked for the scan, which is the

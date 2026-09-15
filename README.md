@@ -29,11 +29,14 @@ daemon, no dependencies to install.
    that first file for you, so the pane is never empty: *On opening a folder, select* at the top
    of the right pane chooses between the first file, the middle file, a random file, or nothing
    at all. Folders are skipped when it picks, so you land on something with a preview.
-5. Type a note about a folder in the *Comment* box under the path. It is saved with the report.
-   The note appears in the *Comment* column of the result list next to that folder.
+5. Type a note about a folder in the *Comment* box under the path. It shows up straight away in
+   the *Comment* column of the result list. A note only leaves the app when a report is written,
+   so while any note has not been exported yet the window title says so and a small *not exported
+   yet* marker sits next to the box. Starting a scan, importing a report, clearing the list and
+   closing the app all ask first while that marker is up.
 6. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
-   records the volumes, the rules and how the scan went. **Import** reads a report back, notes
-   included.
+   records the volumes, the rules and how the scan went. The notes are written to the CSV's
+   comment column and the marker goes away. **Import** reads a report back, notes included.
 
 The status bar keeps a note of which drives and which rules the results on screen came from.
 

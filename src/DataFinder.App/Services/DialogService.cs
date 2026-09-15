@@ -16,6 +16,10 @@ public sealed class DialogService : IDialogService
     public void ShowInfo(string message, string title = "Information") =>
         Show(message, title, MessageBoxImage.Information);
 
+    public bool Confirm(string message, string title) =>
+        MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) ==
+        MessageBoxResult.Yes;
+
     public string? OpenReportFile(string title)
     {
         var dialog = new OpenFileDialog

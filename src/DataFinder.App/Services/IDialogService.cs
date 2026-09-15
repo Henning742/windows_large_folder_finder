@@ -7,6 +7,9 @@ public interface IDialogService
 
     void ShowInfo(string message, string title = "Information");
 
+    /// <summary>Asks a yes/no question. "No" is the answer when the user just closes the box.</summary>
+    bool Confirm(string message, string title);
+
     /// <summary>Asks for a report to import. CSV and the older text reports are both offered.</summary>
     string? OpenReportFile(string title);
 
