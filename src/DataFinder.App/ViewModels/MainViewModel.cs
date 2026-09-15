@@ -85,6 +85,7 @@ public sealed class MainViewModel : ObservableObject
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsScanning);
         ExportCommand = new RelayCommand(ExportResults, () => Results.Count > 0);
         ClearResultsCommand = new RelayCommand(ClearResults, () => Results.Count > 0 && !IsScanning);
+        ExportWebPageCommand = new AsyncRelayCommand(ExportWebPageAsync, () => Results.Count > 0 && !IsScanning);
         ExpandAllCommand = new RelayCommand(() => SetAllExpanded(true), () => VisibleResults.Count > 0);
         CollapseAllCommand = new RelayCommand(() => SetAllExpanded(false), () => VisibleResults.Count > 0);
         OpenFolderCommand = new RelayCommand(OpenActiveFolder, () => ActiveFolderPath.Length > 0);
@@ -129,6 +130,9 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand ExportCommand { get; }
 
     public RelayCommand ClearResultsCommand { get; }
+
+    /// <summary>Writes the whole list out as a web page, pictures and all.</summary>
+    public AsyncRelayCommand ExportWebPageCommand { get; }
 
     public RelayCommand ExpandAllCommand { get; }
 
@@ -849,7 +853,7 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        string? file = _dialogs.SaveReportFile("Export folder list", SuggestedReportName());
+        string? file = _dialogs.SaveReportFile("Export folder list", SuggestedReportName(".csv"));
         if (file is null)
         {
             return;
@@ -917,8 +921,120 @@ public sealed class MainViewModel : ObservableObject
         return _dialogs.Confirm($"{notes}\n\n{whatHappens}\n\nContinue?", "Comments not saved");
     }
 
+    /// <summary>
+    /// Writes every folder in the list out as one web page, with a few pictures of what is inside
+    /// each of them. The page is built from the same tree the left pane shows, so it reads the same
+    /// way, and the notes typed here travel with it.
+    /// </summary>
+    private async Task ExportWebPageAsync()
+    {
+        if (Results.Count == 0)
+        {
+            _dialogs.ShowInfo("There is nothing to export yet.");
+            return;
+        }
+
+        string? file = _dialogs.SaveWebPageFile("Export the list as a web page", SuggestedReportName(".html"));
+        if (file is null)
+        {
+            return;
+        }
+
+        _scanCancellation = new CancellationTokenSource();
+        IsScanning = true;
+        ProgressValue = 0;
+        RemainingText = "Estimating how long this will take...";
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var remaining = new RemainingTimeEstimator();
+
+        var progress = new Progress<HtmlReportProgress>(step =>
+        {
+            if (!IsScanning)
+            {
+                return;
+            }
+
+            double fraction = step.FoldersTotal == 0 ? 1d : (double)step.FoldersDone / step.FoldersTotal;
+            ProgressValue = fraction * 100d;
+            RemainingText = DescribeRemaining(remaining.Update(fraction, stopwatch.Elapsed));
+            StatusText = $"Looking inside {step.Message}...";
+        });
+
+        try
+        {
+            // The page carries every folder in the list, not only the rows the filter is showing.
+            IReadOnlyList<ResultTreeNode> tree = ResultTree.Build(Results);
+            IReadOnlyList<string> suffixes = DecodeSetup.Extensions;
+            IReadOnlyList<RawSchema> schemas = DecodeSetup.ShownSchemas.Count > 0
+                ? DecodeSetup.ShownSchemas
+                : DecodeSetup.UsableSchemas;
+            bool stretch = StretchPreview;
+            CancellationToken token = _scanCancellation.Token;
+
+            var options = new HtmlReportOptions
+            {
+                Title = "Folders found",
+                Source = ScanSummary.Length > 0 ? ScanSummary : null,
+                Warning = ScanWarning.Length > 0 ? ScanWarning : null,
+            };
+
+            var builder = new HtmlReportBuilder();
+            HtmlReportBuildResult result = await Task.Run(
+                () => builder.Build(
+                    tree,
+                    ListFilesForPage,
+                    suffixes,
+                    schemas,
+                    stretch,
+                    DateTimeOffset.Now,
+                    options,
+                    progress,
+                    token),
+                token);
+
+            HtmlReport.SaveText(file, result.Html);
+
+            StatusText =
+                $"Wrote {result.Folders:N0} folders and {result.Pictures:N0} pictures to {Path.GetFileName(file)}.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Writing the web page was cancelled.";
+        }
+        catch (Exception exception)
+        {
+            StatusText = "Writing the web page failed.";
+            _dialogs.ShowError(exception.Message, "Export failed");
+        }
+        finally
+        {
+            IsScanning = false;
+            ProgressValue = 0;
+            RemainingText = string.Empty;
+            _scanCancellation?.Dispose();
+            _scanCancellation = null;
+        }
+    }
+
+    /// <summary>
+    /// What sits inside a folder, for the web page: the scan that is still in memory answers when
+    /// it can, and the file system answers for imported folders and for anything else. The scan
+    /// index costs nothing to ask, which is what keeps a big report quick.
+    /// </summary>
+    private IReadOnlyList<FileEntry> ListFilesForPage(string path)
+    {
+        ScanReport? report = ReportFor(path);
+        if (report is not null && report.Aggregation.TryGetRecordNumber(path, out uint record))
+        {
+            return report.Index.GetChildren(report.Aggregation, record, path);
+        }
+
+        return FileSystemListing.EnumerateChildren(path, DecodeSetup.Extensions);
+    }
+
     /// <summary>A file name that says where the folders came from and when they were found.</summary>
-    private string SuggestedReportName()
+    private string SuggestedReportName(string extension)
     {
         string source = _reports.Count switch
         {
@@ -927,7 +1043,7 @@ public sealed class MainViewModel : ObservableObject
             _ => $"{_reports.Count}drives",
         };
 
-        return $"folders-{source}-{DateTime.Now:yyyyMMdd-HHmm}.csv";
+        return $"folders-{source}-{DateTime.Now:yyyyMMdd-HHmm}{extension}";
     }
 
     private void ClearResults()

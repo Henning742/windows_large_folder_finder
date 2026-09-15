@@ -15,4 +15,7 @@ public interface IDialogService
 
     /// <summary>Asks where the CSV report and its JSON companion file should be written.</summary>
     string? SaveReportFile(string title, string suggestedFileName);
+
+    /// <summary>Asks where the web page report should be written.</summary>
+    string? SaveWebPageFile(string title, string suggestedFileName);
 }

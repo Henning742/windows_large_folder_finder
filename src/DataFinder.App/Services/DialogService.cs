@@ -47,6 +47,20 @@ public sealed class DialogService : IDialogService
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
+    public string? SaveWebPageFile(string title, string suggestedFileName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = title,
+            Filter = "Web page (*.html)|*.html|All files (*.*)|*.*",
+            DefaultExt = ".html",
+            AddExtension = true,
+            FileName = suggestedFileName,
+        };
+
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
+    }
+
     private static void Show(string message, string title, MessageBoxImage icon) =>
         MessageBox.Show(message, title, MessageBoxButton.OK, icon);
 }

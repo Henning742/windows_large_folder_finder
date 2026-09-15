@@ -28,6 +28,8 @@
           <Border Width="14" />
           <Button Content="Import..." Style="{StaticResource ToolbarButton}" Command="{Binding ImportCommand}" />
           <Button Content="Export..." Style="{StaticResource ToolbarButton}" Command="{Binding ExportCommand}" />
+          <Button Content="Web page..." Style="{StaticResource ToolbarButton}" Command="{Binding ExportWebPageCommand}"
+                  ToolTip="Write every folder in the list, with a few thumbnails of what is inside each, to one HTML file" />
           <Button Content="Clear" Style="{StaticResource ToolbarButton}" Command="{Binding ClearResultsCommand}" />
         </StackPanel>
         <TextBlock DockPanel.Dock="Right" Text="{Binding RemainingText}" MinWidth="150" Margin="12,0,0,0"
