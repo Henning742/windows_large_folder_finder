@@ -31,7 +31,6 @@ public sealed class MainViewModel : ObservableObject
     private string? _importedFrom;
     private ScanSettings? _lastSettings;
 
-    private VolumeInfo? _selectedVolume;
     private string _minSizeText = "200";
     private string _minFileCountText = "200";
     private bool _sizeIncludesSubfolders = true;
@@ -63,7 +62,9 @@ public sealed class MainViewModel : ObservableObject
         IsElevated = ElevationHelper.IsElevated();
 
         RefreshVolumesCommand = new RelayCommand(RefreshVolumes, () => !IsScanning);
-        ScanCommand = new AsyncRelayCommand(ScanAsync, () => !IsScanning && SelectedVolume is not null && !HasValidationMessage);
+        SelectAllDrivesCommand = new RelayCommand(() => SetAllDrivesSelected(true), () => !IsScanning && VolumeChoices.Count > 0);
+        SelectNoDrivesCommand = new RelayCommand(() => SetAllDrivesSelected(false), () => !IsScanning && SelectedDriveCount > 0);
+        ScanCommand = new AsyncRelayCommand(ScanAsync, () => !IsScanning && SelectedDriveCount > 0 && !HasValidationMessage);
         CancelCommand = new RelayCommand(CancelRunningWork, () => IsScanning);
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsScanning);
         ExportCommand = new RelayCommand(ExportResults, () => Results.Count > 0);
@@ -79,11 +80,15 @@ public sealed class MainViewModel : ObservableObject
         ValidateSettings();
     }
 
-    public ObservableCollection<VolumeInfo> Volumes { get; } = new();
+    public ObservableCollection<VolumeChoice> VolumeChoices { get; } = new();
 
     public ObservableCollection<FolderResult> Results { get; } = new();
 
     public ObservableCollection<FileEntry> Contents { get; } = new();
+
+    public RelayCommand SelectAllDrivesCommand { get; }
+
+    public RelayCommand SelectNoDrivesCommand { get; }
 
     /// <summary>The choices of the "select a file on its own" drop down, in the order they are shown.</summary>
     public IReadOnlyList<AutoSelectOption> AutoSelectOptions { get; } = new[]
@@ -120,11 +125,18 @@ public sealed class MainViewModel : ObservableObject
 
     public RelayCommand RelaunchElevatedCommand { get; }
 
-    public VolumeInfo? SelectedVolume
+    /// <summary>The drives that are ticked, in the order they are listed.</summary>
+    public IReadOnlyList<VolumeInfo> SelectedVolumes =>
+        VolumeChoices.Where(choice => choice.IsSelected).Select(choice => choice.Volume).ToList();
+
+    public int SelectedDriveCount => VolumeChoices.Count(choice => choice.IsSelected);
+
+    public string DriveSelectionText => SelectedDriveCount switch
     {
-        get => _selectedVolume;
-        set => SetProperty(ref _selectedVolume, value);
-    }
+        0 => "No drive selected",
+        1 => "1 drive selected",
+        _ => $"{SelectedDriveCount} drives selected",
+    };
 
     public string MinSizeText
     {
@@ -220,7 +232,7 @@ public sealed class MainViewModel : ObservableObject
 
             if (value is not null)
             {
-                ShowFolder(value.FullPath, value.Result?.RecordNumber ?? 0);
+                ShowFolder(value.FullPath);
             }
         }
     }
@@ -404,9 +416,7 @@ public sealed class MainViewModel : ObservableObject
 
         if (item.IsDirectory)
         {
-            AggregationResult? aggregation = AggregationFor(item.FullPath);
-            uint recordNumber = aggregation is not null && aggregation.TryGetRecordNumber(item.FullPath, out uint resolved) ? resolved : 0;
-            ShowFolder(item.FullPath, recordNumber);
+            ShowFolder(item.FullPath);
             return;
         }
 
@@ -424,26 +434,64 @@ public sealed class MainViewModel : ObservableObject
 
     private void RefreshVolumes()
     {
-        VolumeInfo? previous = SelectedVolume;
+        var previouslySelected = VolumeChoices
+            .Where(choice => choice.IsSelected)
+            .Select(choice => choice.Volume.DriveLetter)
+            .ToHashSet();
 
-        Volumes.Clear();
+        VolumeChoices.Clear();
+
+        var found = new List<VolumeChoice>();
         foreach (VolumeInfo volume in VolumeEnumerator.GetNtfsVolumes())
         {
-            Volumes.Add(volume);
+            // A refresh keeps the ticks that are still there. The first run ticks the first drive.
+            bool selected = previouslySelected.Count > 0
+                ? previouslySelected.Contains(volume.DriveLetter)
+                : found.Count == 0;
+
+            var choice = new VolumeChoice(volume, selected);
+            choice.PropertyChanged += OnVolumeChoiceChanged;
+            found.Add(choice);
+            VolumeChoices.Add(choice);
         }
 
-        SelectedVolume = previous is not null
-            ? Volumes.FirstOrDefault(volume => volume.DriveLetter == previous.DriveLetter) ?? Volumes.FirstOrDefault()
-            : Volumes.FirstOrDefault();
+        OnDriveSelectionChanged();
 
-        StatusText = Volumes.Count == 0
+        StatusText = VolumeChoices.Count == 0
             ? "No NTFS volume was found. Connect a drive and press Refresh."
-            : $"{Volumes.Count} NTFS volume(s) found.";
+            : $"{VolumeChoices.Count} NTFS volume(s) found.";
+    }
+
+    private void OnVolumeChoiceChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(VolumeChoice.IsSelected))
+        {
+            OnDriveSelectionChanged();
+        }
+    }
+
+    private void OnDriveSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedVolumes));
+        OnPropertyChanged(nameof(SelectedDriveCount));
+        OnPropertyChanged(nameof(DriveSelectionText));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void SetAllDrivesSelected(bool selected)
+    {
+        foreach (VolumeChoice choice in VolumeChoices)
+        {
+            choice.IsSelected = selected;
+        }
+
+        OnDriveSelectionChanged();
     }
 
     private async Task ScanAsync()
     {
-        if (SelectedVolume is not { } volume)
+        IReadOnlyList<VolumeInfo> volumes = SelectedVolumes;
+        if (volumes.Count == 0)
         {
             _dialogs.ShowError("Choose a drive first.");
             return;
@@ -458,57 +506,64 @@ public sealed class MainViewModel : ObservableObject
         _scanCancellation = new CancellationTokenSource();
         IsScanning = true;
         ClearSession();
+        _lastSettings = settings;
         Results.Clear();
         RebuildResultTree();
         UpdateResultSummary();
-        StatusText = "Opening the volume...";
         ProgressValue = 0;
 
-        var progress = new Progress<ScanProgress>(OnScanProgress);
+        ScanWarning = string.Empty;
+        var warnings = new List<string>();
+        var incomplete = new List<VolumeInfo>();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var scanner = new NtfsVolumeScanner();
 
         try
         {
-            ScanReport report = await Task.Run(
-                () => new NtfsVolumeScanner().Scan(volume, settings, progress, _scanCancellation.Token),
-                _scanCancellation.Token);
-
-            _reports.Clear();
-            _reports.Add(report);
-            _importedFrom = null;
-            _lastSettings = settings;
-
-            foreach (FolderResult result in report.Results)
+            for (int index = 0; index < volumes.Count; index++)
             {
-                Results.Add(result);
+                VolumeInfo volume = volumes[index];
+                int position = index + 1;
+                StatusText = $"Opening {volume.DriveLetter}: ({position} of {volumes.Count})...";
+                ProgressValue = (double)index / volumes.Count * 100d;
+
+                // The report is kept as soon as a volume is done, so the folders of a finished drive
+                // can already be opened while the next one is being read.
+                var progress = new Progress<ScanProgress>(update => OnScanProgress(update, volume, index, volumes.Count));
+                ScanReport report = await Task.Run(
+                    () => scanner.Scan(volume, settings, progress, _scanCancellation.Token),
+                    _scanCancellation.Token);
+
+                _reports.Add(report);
+                _importedFrom = null;
+
+                foreach (FolderResult result in report.Results)
+                {
+                    Results.Add(result);
+                }
+
+                RebuildResultTree();
+                UpdateResultSummary();
+
+                if (!report.MftReadCompleted)
+                {
+                    incomplete.Add(volume);
+                }
+
+                warnings.AddRange(report.Warnings.Select(warning => $"{volume.DriveLetter}: {warning}"));
             }
 
-            RebuildResultTree();
-            UpdateResultSummary();
-
-            if (report.MftReadCompleted)
-            {
-                ScanWarning = string.Empty;
-                StatusText =
-                    $"Scan finished in {report.Elapsed.TotalSeconds:0.0} s - {report.RecordsInUse:N0} records in use, " +
-                    $"{report.Index.DirectoryCount:N0} folders indexed.";
-            }
-            else
-            {
-                ScanWarning =
-                    $"The master file table could only be read to record {report.RecordsRead:N0} of {report.ExpectedRecordCount:N0}, " +
-                    "so folders on the rest of the volume were never seen. The list below is incomplete.";
-                StatusText = "Scan finished, but the master file table could not be read in full - the results are incomplete.";
-            }
+            DescribeScanResult(stopwatch.Elapsed, warnings, incomplete);
 
             if (!SelectFirstMatchedFolder())
             {
-                ShowFolder(string.Empty, 0);
+                ShowFolder(string.Empty);
                 PreviewMessage = "No folder matched the rules. Raising the size or lowering the file count usually finds something.";
             }
 
-            if (report.Warnings.Count > 0)
+            if (warnings.Count > 0)
             {
-                _dialogs.ShowInfo(string.Join(Environment.NewLine + Environment.NewLine, report.Warnings), "Scan finished with notes");
+                _dialogs.ShowInfo(string.Join(Environment.NewLine + Environment.NewLine, warnings), "Scan finished with notes");
             }
         }
         catch (OperationCanceledException)
@@ -534,10 +589,36 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private void OnScanProgress(ScanProgress progress)
+    /// <summary>Says how the scan went once every selected drive has been read.</summary>
+    private void DescribeScanResult(TimeSpan elapsed, IReadOnlyList<string> warnings, IReadOnlyList<VolumeInfo> incomplete)
     {
-        ProgressValue = progress.Fraction * 100d;
-        StatusText = $"{progress.Stage}: {progress.ItemsProcessed:N0} of {progress.TotalItems:N0} records - {progress.FoldersFound:N0} folders seen.";
+        long recordsInUse = _reports.Sum(report => report.RecordsInUse);
+        int folders = _reports.Sum(report => report.Index.DirectoryCount);
+        string drives = _reports.Count == 1 ? "1 drive" : $"{_reports.Count} drives";
+
+        if (incomplete.Count == 0)
+        {
+            ScanWarning = string.Empty;
+            StatusText =
+                $"Scan finished in {elapsed.TotalSeconds:0.0} s - {recordsInUse:N0} records in use, " +
+                $"{folders:N0} folders indexed on {drives}.";
+            return;
+        }
+
+        ScanWarning =
+            $"On {string.Join(", ", incomplete.Select(volume => volume.DriveLetter + ":"))} the master file table " +
+            "could not be read in full, so folders on the rest of those volumes were never seen. The list is incomplete.";
+        StatusText = "Scan finished, but at least one master file table could not be read in full - the results are incomplete.";
+    }
+
+    private void OnScanProgress(ScanProgress progress, VolumeInfo volume, int volumeIndex, int volumeCount)
+    {
+        // Each drive counts for the same share of the bar, and the share of the drive being read
+        // fills from there.
+        ProgressValue = (volumeIndex + progress.Fraction) / volumeCount * 100d;
+        StatusText =
+            $"{volume.DriveLetter}: {progress.Stage}: {progress.ItemsProcessed:N0} of {progress.TotalItems:N0} records - " +
+            $"{progress.FoldersFound:N0} folders seen.";
     }
 
     private async Task ImportAsync()
@@ -708,7 +789,7 @@ public sealed class MainViewModel : ObservableObject
         ClearSession();
         RebuildResultTree();
         UpdateResultSummary();
-        ShowFolder(string.Empty, 0);
+        ShowFolder(string.Empty);
         PreviewMessage = "Select a folder on the left to see what is inside.";
         StatusText = "Results cleared.";
     }
@@ -730,11 +811,9 @@ public sealed class MainViewModel : ObservableObject
             ? null
             : _reports.FirstOrDefault(report => path.StartsWith(report.Volume.RootPath, StringComparison.OrdinalIgnoreCase));
 
-    private AggregationResult? AggregationFor(string path) => ReportFor(path)?.Aggregation;
-
     private void CancelRunningWork() => _scanCancellation?.Cancel();
 
-    private void ShowFolder(string path, uint recordNumber)
+    private void ShowFolder(string path)
     {
         _contentsCancellation?.Cancel();
         _contentsCancellation?.Dispose();
@@ -814,9 +893,7 @@ public sealed class MainViewModel : ObservableObject
 
         int separator = path.LastIndexOf('\\');
         string parent = separator <= 2 ? path[..2] + "\\" : path[..separator];
-        AggregationResult? aggregation = AggregationFor(parent);
-        uint recordNumber = aggregation is not null && aggregation.TryGetRecordNumber(parent, out uint resolved) ? resolved : 0;
-        ShowFolder(parent, recordNumber);
+        ShowFolder(parent);
     }
 
     private void StartPreviewLoad()

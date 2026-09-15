@@ -21,15 +21,10 @@
     <Border Grid.Row="0" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Padding="8">
       <DockPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-          <TextBlock Text="Drive:" Style="{StaticResource FieldLabel}" />
-          <ComboBox Width="300" Margin="0,0,8,0"
-                    ItemsSource="{Binding Volumes}"
-                    SelectedItem="{Binding SelectedVolume}"
-                    DisplayMemberPath="DisplayName"
-                    IsEnabled="{Binding IsNotScanning}" />
-          <Button Content="Refresh" Style="{StaticResource ToolbarButton}" Command="{Binding RefreshVolumesCommand}" />
           <Button Content="Scan" Style="{StaticResource ToolbarButton}" FontWeight="SemiBold" Command="{Binding ScanCommand}" />
           <Button Content="Cancel" Style="{StaticResource ToolbarButton}" Command="{Binding CancelCommand}" />
+          <TextBlock Text="{Binding DriveSelectionText}" Style="{StaticResource FieldLabel}" Margin="8,0,8,0" Foreground="#666666" />
+          <Button Content="Refresh" Style="{StaticResource ToolbarButton}" Command="{Binding RefreshVolumesCommand}" />
           <Border Width="14" />
           <Button Content="Import..." Style="{StaticResource ToolbarButton}" Command="{Binding ImportCommand}" />
           <Button Content="Export..." Style="{StaticResource ToolbarButton}" Command="{Binding ExportCommand}" />
@@ -73,10 +68,42 @@
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
           <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <GroupBox Grid.Row="0" Header="Rules" Padding="8">
+        <GroupBox Grid.Row="0" Header="Drives to scan" Padding="8">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <ListBox Grid.Row="0" x:Name="DriveList" MaxHeight="104"
+                     ItemsSource="{Binding VolumeChoices}"
+                     IsEnabled="{Binding IsNotScanning}"
+                     BorderThickness="0" Background="Transparent"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     VirtualizingPanel.IsVirtualizing="True">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <CheckBox Content="{Binding DisplayName}"
+                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                            ToolTip="Tick every drive that should be scanned in the next run" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,4,0,0">
+              <Button Content="Select all" Style="{StaticResource ToolbarButton}" MinWidth="0" Padding="8,2"
+                      Command="{Binding SelectAllDrivesCommand}" />
+              <Button Content="Select none" Style="{StaticResource ToolbarButton}" MinWidth="0" Padding="8,2"
+                      Command="{Binding SelectNoDrivesCommand}" />
+            </StackPanel>
+          </Grid>
+        </GroupBox>
+
+        <GroupBox Grid.Row="1" Header="Rules" Padding="8" Margin="0,8,0,0">
           <Grid>
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="Auto" />
@@ -120,7 +147,7 @@
           </Grid>
         </GroupBox>
 
-        <DockPanel Grid.Row="1" Margin="0,10,0,4">
+        <DockPanel Grid.Row="2" Margin="0,10,0,4">
           <TextBlock DockPanel.Dock="Left" Text="Results" Style="{StaticResource PaneHeader}" />
           <TextBlock DockPanel.Dock="Right" Text="{Binding ResultSummary}" Foreground="#666666"
                      VerticalAlignment="Center" Margin="8,0,0,0" />
@@ -135,7 +162,7 @@
                    ToolTip="Show only folders whose path contains this text" />
         </DockPanel>
 
-        <ListView x:Name="ResultsList" Grid.Row="2"
+        <ListView x:Name="ResultsList" Grid.Row="3"
                   ItemsSource="{Binding VisibleResults}"
                   SelectedItem="{Binding SelectedResultNode}"
                   MouseDoubleClick="ResultsList_MouseDoubleClick"

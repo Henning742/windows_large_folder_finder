@@ -1,6 +1,6 @@
 # NTFS Folder Finder
 
-A small Windows desktop app that answers one question: *which folders on this drive are big
+A small Windows desktop app that answers one question: *which folders on these drives are big
 **and** full of files?*
 
 It reads the master file table (MFT) of an NTFS volume directly, so it finds the answer in
@@ -9,8 +9,10 @@ daemon, no dependencies to install.
 
 ## What it does
 
-1. Pick a mounted NTFS volume from the drop down.
-2. Press **Scan**. The app reads the volume's master file table and applies two rules:
+1. Tick one or more mounted NTFS volumes in the *Drives to scan* box. *Select all* ticks the lot.
+   The ticks are remembered when you press *Refresh*, and the first run ticks the first drive, so
+   the one-drive case is still a single click.
+2. Press **Scan**. The app reads each volume's master file table in turn and applies two rules:
    - the folder is bigger than *N* MB (200 MB by default), and
    - more than *N* files sit **directly** inside it (200 by default).
 3. Matched folders appear in the left pane as a folder tree, sorted by full path. Folders that
@@ -119,9 +121,10 @@ is UTF-8 with a byte order mark so Excel reads notes in any language correctly.
 ### The JSON
 
 Everything that does not belong in a spreadsheet lives in the JSON file: the volumes that were
-read, the rules, how long the scan took, how many records it read, whether the master file table
-was read in full, and any warnings. Its `resultsFile` field points at the CSV **by relative path**,
-so the two files can be moved or archived together:
+read (all of them, when several drives were scanned), the rules, how long the scan took, how many
+records it read, whether the master file tables were read in full, and any warnings. Its
+`resultsFile` field points at the CSV **by relative path**, so the two files can be moved or
+archived together:
 
 ```json
 {
@@ -171,7 +174,9 @@ Two details are worth knowing, because they decide what shows up:
 - Deleted records are ignored. Hard links show up once per name. Compressed and sparse files
   count their logical size.
 - The folder tree is kept in memory so the preview pane is instant. Budget roughly 100 to 200 MB
-  of RAM per million files.
+  of RAM per million files - and that is per scanned drive, since the tree of every drive that was
+  scanned stays around so its folders can still be opened afterwards. Scan the drives one at a
+  time if memory is tight; the result list and the report are the same either way.
 
 ## Project layout
 
