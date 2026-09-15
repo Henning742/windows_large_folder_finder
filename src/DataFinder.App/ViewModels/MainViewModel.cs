@@ -635,14 +635,18 @@ public sealed class MainViewModel : ObservableObject
 
     private void OnScanProgress(ScanProgress progress, VolumeInfo volume, int volumeIndex, int volumeCount)
     {
+        // Progress reports are posted to the UI thread, so one can still arrive after the scan it
+        // belongs to has finished. By then there is nothing left to say.
+        if (!IsScanning || _scanRemaining is null || _scanStopwatch is null)
+        {
+            return;
+        }
+
         // Each drive fills its own share of the bar, and how long the whole run will take is worked
         // out from the share that is done.
-        TimeSpan? remaining = _scanRemaining?.Update(volumeIndex, progress.Fraction, _scanStopwatch?.Elapsed ?? TimeSpan.Zero);
+        TimeSpan? remaining = _scanRemaining.Update(volumeIndex, progress.Fraction, _scanStopwatch.Elapsed);
 
-        ProgressValue = _scanRemaining is null
-            ? (volumeIndex + progress.Fraction) / volumeCount * 100d
-            : _scanRemaining.Fraction(volumeIndex, progress.Fraction) * 100d;
-
+        ProgressValue = _scanRemaining.Fraction(volumeIndex, progress.Fraction) * 100d;
         RemainingText = DescribeRemaining(remaining);
         StatusText =
             $"{volume.DriveLetter}: {progress.Stage}: {progress.ItemsProcessed:N0} of {progress.TotalItems:N0} records - " +
@@ -687,6 +691,10 @@ public sealed class MainViewModel : ObservableObject
         IsScanning = true;
         ClearSession();
         _importedFrom = file;
+
+        // Imported folders were not picked by the rules, so no rule values belong in the report
+        // this list is exported as.
+        _lastSettings = null;
         Results.Clear();
         RebuildResultTree();
         UpdateResultSummary();
@@ -700,6 +708,11 @@ public sealed class MainViewModel : ObservableObject
 
         var progress = new Progress<int>(done =>
         {
+            if (!IsScanning)
+            {
+                return;
+            }
+
             double fraction = total == 0 ? 0d : (double)done / total;
             ProgressValue = fraction * 100d;
             RemainingText = DescribeRemaining(_importRemaining.Update(fraction, stopwatch.Elapsed));
