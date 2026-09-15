@@ -207,21 +207,6 @@ public sealed class RawImageDecoderTests
     }
 
     [Fact]
-    public void ReplacesWhiteSpeckleWithTheNeighbouringSample()
-    {
-        var schema = Grey(3, 3);
-        schema.RemoveWhite = true;
-
-        var pixels = new byte[9];
-        Array.Fill(pixels, (byte)10);
-        pixels[4] = 255;
-
-        RawDecodeResult result = RawImageDecoder.Decode(pixels, schema);
-
-        Assert.Equal(10, result.Frame!.Pixels[4]);
-    }
-
-    [Fact]
     public void FailsWithAReasonWhenThereAreNotEnoughBytesForAFrame()
     {
         RawDecodeResult result = RawImageDecoder.Decode(new byte[3], Grey(2, 2));

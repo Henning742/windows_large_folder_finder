@@ -144,9 +144,6 @@
                      HorizontalAlignment="Left"
                      ToolTip="Which frame of the recording to show. 0 is the first one." />
 
-            <CheckBox Content="Remove the white speckle" IsChecked="{Binding RemoveWhite}" Margin="0,8,0,0"
-                      ToolTip="Replace the white dots some cameras leave behind with the neighbouring sample." />
-
             <TextBlock Text="{Binding ValidationMessage}" Foreground="#B00020" TextWrapping="Wrap" Margin="0,8,0,0"
                        Visibility="{Binding HasValidationMessage, Converter={StaticResource BoolToVisibility}}" />
           </StackPanel>

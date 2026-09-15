@@ -179,7 +179,6 @@ app has to be told how the numbers are laid out, and that is what a *schematic* 
 | Crop | Rows and columns to throw away, for the odd edge line some cameras add: `1,1,0,0`. |
 | Split column | Where the packed 8 bit part of a 16 bit frame starts. 0 means the middle. |
 | Frame to show | Which frame of the recording to look at. 0 is the first one. |
-| White speckle | Replace the white dots some cameras leave behind with the neighbouring sample. |
 
 **Decode settings...** in the preview pane holds both halves of it: the file suffixes the preview
 will try to decode, and the list of schematics. Suffixes are typed in freely - `.raw .bin` and
@@ -201,7 +200,7 @@ reference scripts were written for:
 | 16 bit grayscale 640 x 512, as it is | The same, with the stretch off. |
 | 14 bit inside 16 bit 640 x 514 (64 byte header) | 16 bit values that only use their lower 14 bits. |
 | 16 bit + packed 8 bit 960 x 514 (64 byte header) | The wide recording: the 16 bit rows carry a packed 8 bit picture on their right hand side. |
-| Colour 1920 x 540 (UYVY) | Packed colour, with and without the white speckle filter. |
+| Colour 1920 x 540 (UYVY) | Packed colour. |
 
 Only one frame is read per look - the frame the schematic asks for - and it is read where it sits
 in the file, so a multi gigabyte recording opens as quickly as a small one. The picture is drawn
@@ -275,5 +274,5 @@ entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`
 size parser, the CSV and JSON report round trip (quoting, column lookup, the relative path between
 the two files), the tree that the results are drawn as, the choice of file to select on its own,
 the estimate of how much longer a scan will take, and the data file decoder: every layout, the
-stretch, the crop, the header and frame skipping, packed colour, the white speckle filter, the
+stretch, the crop, the header and frame skipping, packed colour, the
 schematics the app ships with, and the list of file suffixes the preview decodes.

@@ -15,9 +15,6 @@ public static class RawImageDecoder
     private const double LowPercentile = 2d;
     private const double HighPercentile = 98d;
 
-    /// <summary>A sample this close to white counts as speckle when "remove white" is on.</summary>
-    private const int WhiteThreshold = 5;
-
     /// <summary>
     /// Reads one whole frame. <paramref name="frameBytes"/> has to hold the frame's pixels, so it is
     /// either what <see cref="RawFrameReader"/> read or the same bytes from somewhere else.
@@ -59,11 +56,6 @@ public static class RawImageDecoder
         Buffer.BlockCopy(bytes, 0, plane, 0, plane.Length);
 
         plane = Crop(plane, schema.Width, schema.Height, 1, schema.Borders, out int width, out int height);
-        if (schema.RemoveWhite)
-        {
-            RemoveWhiteSpeckle(plane, width, height, 1);
-        }
-
         return RawDecodeResult.Success(new RawFrame
         {
             Width = width,
@@ -80,11 +72,6 @@ public static class RawImageDecoder
         Buffer.BlockCopy(bytes, 0, rgb, 0, rgb.Length);
 
         rgb = Crop(rgb, schema.Width, schema.Height, 3, schema.Borders, out int width, out int height);
-        if (schema.RemoveWhite)
-        {
-            RemoveWhiteSpeckle(rgb, width, height, 3);
-        }
-
         return RawDecodeResult.Success(
             new RawFrame
             {
@@ -131,11 +118,6 @@ public static class RawImageDecoder
         }
 
         plane = Crop(plane, schema.Width, schema.Height, 1, schema.Borders, out int width, out int height);
-        if (schema.RemoveWhite)
-        {
-            RemoveWhiteSpeckle(plane, width, height, 1);
-        }
-
         return RawDecodeResult.Success(new RawFrame
         {
             Width = width,
@@ -181,11 +163,6 @@ public static class RawImageDecoder
             }
         }
 
-        if (schema.RemoveWhite)
-        {
-            RemoveWhiteSpeckle(plane, columns * 2, rows, 1);
-        }
-
         return RawDecodeResult.Success(
             new RawFrame
             {
@@ -222,11 +199,6 @@ public static class RawImageDecoder
 
             WriteRgb(rgb, pixel, y0, u, v);
             WriteRgb(rgb, pixel + 1, y1, u, v);
-        }
-
-        if (schema.RemoveWhite)
-        {
-            RemoveWhiteSpeckle(rgb, schema.Width, schema.Height, 3);
         }
 
         string? warning = schema.Borders.IsNone
@@ -296,45 +268,6 @@ public static class RawImageDecoder
 
         return target;
     }
-
-    /// <summary>
-    /// The white speckle filter of the reference script: a sample that is (almost) white is
-    /// replaced by its neighbour, first from above and below, then from left and right.
-    /// </summary>
-    private static void RemoveWhiteSpeckle(byte[] plane, int width, int height, int channels)
-    {
-        ReadOnlySpan<int> shifts = stackalloc int[] { -1, 1 };
-
-        for (int axis = 0; axis < 2; axis++)
-        {
-            foreach (int shift in shifts)
-            {
-                var rolled = (byte[])plane.Clone();
-
-                for (int y = 0; y < height; y++)
-                {
-                    int sourceY = axis == 0 ? Wrap(y - shift, height) : y;
-
-                    for (int x = 0; x < width; x++)
-                    {
-                        int sourceX = axis == 1 ? Wrap(x - shift, width) : x;
-                        int source = (((sourceY * width) + sourceX) * channels);
-                        int target = (((y * width) + x) * channels);
-
-                        for (int channel = 0; channel < channels; channel++)
-                        {
-                            if (plane[target + channel] > 255 - WhiteThreshold)
-                            {
-                                plane[target + channel] = rolled[source + channel];
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private static int Wrap(int value, int size) => value < 0 ? value + size : value >= size ? value - size : value;
 
     /// <summary>
     /// The percentile with the interpolation the reference script's library uses, so a stretched

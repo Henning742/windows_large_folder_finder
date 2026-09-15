@@ -113,7 +113,6 @@ public sealed class RawSchemaTests
             Borders = new RawBorders(1, 2, 3, 4),
             SplitColumn = 700,
             FrameIndex = 3,
-            RemoveWhite = true,
         };
 
         RawSchema copy = schema.Clone();
@@ -128,7 +127,6 @@ public sealed class RawSchemaTests
         Assert.True(copy.Normalize);
         Assert.Equal(700, copy.SplitColumn);
         Assert.Equal(3, copy.FrameIndex);
-        Assert.True(copy.RemoveWhite);
     }
 
     [Fact]

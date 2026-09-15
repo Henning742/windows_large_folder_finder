@@ -45,9 +45,6 @@ public sealed class RawSchema
     /// <summary>Which frame inside the file to show. 0 is the first one.</summary>
     public int FrameIndex { get; set; }
 
-    /// <summary>Replace the white speckle some cameras leave behind with the neighbouring sample.</summary>
-    public bool RemoveWhite { get; set; }
-
     public int BytesPerPixel => RawDataTypes.BytesPerPixel(DataType);
 
     public long Pixels => (long)Width * Height;
@@ -142,7 +139,6 @@ public sealed class RawSchema
         Borders = Borders,
         SplitColumn = SplitColumn,
         FrameIndex = FrameIndex,
-        RemoveWhite = RemoveWhite,
     };
 
     /// <summary>One line for a tool tip: the size, the layout, the header and what is done to it.</summary>
@@ -172,11 +168,6 @@ public sealed class RawSchema
         if (!Borders.IsNone)
         {
             parts.Add(Borders.Describe());
-        }
-
-        if (RemoveWhite)
-        {
-            parts.Add("white speckle removed");
         }
 
         if (FrameIndex > 0)

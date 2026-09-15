@@ -22,7 +22,6 @@ public sealed class RawSchemaViewModel : ObservableObject
     private string _bordersText;
     private RawDataType _dataType;
     private bool _normalize;
-    private bool _removeWhite;
     private bool _isShown = true;
     private string? _validationMessage;
 
@@ -39,7 +38,6 @@ public sealed class RawSchemaViewModel : ObservableObject
         _bordersText = schema.Borders.IsNone ? string.Empty : schema.Borders.ToString();
         _dataType = schema.DataType;
         _normalize = schema.Normalize;
-        _removeWhite = schema.RemoveWhite;
 
         Refresh();
     }
@@ -187,18 +185,6 @@ public sealed class RawSchemaViewModel : ObservableObject
         }
     }
 
-    public bool RemoveWhite
-    {
-        get => _removeWhite;
-        set
-        {
-            if (SetProperty(ref _removeWhite, value))
-            {
-                Refresh();
-            }
-        }
-    }
-
     /// <summary>Why the schematic cannot be used, or null when it can.</summary>
     public string? ValidationMessage
     {
@@ -297,7 +283,6 @@ public sealed class RawSchemaViewModel : ObservableObject
         _schema.Borders = borders;
         _schema.DataType = _dataType;
         _schema.Normalize = _normalize;
-        _schema.RemoveWhite = _removeWhite;
         return null;
     }
 
