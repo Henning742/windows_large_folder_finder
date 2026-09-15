@@ -18,7 +18,10 @@ daemon, no dependencies to install.
    the tree keeps its shape. Every folder has a triangle to expand or collapse it, and *Expand
    all* / *Collapse all* do the whole tree at once.
 4. Click one and its contents appear on the right; select a file to see a preview. Images are
-   shown inline, text files are shown as text, everything else shows its metadata.
+   shown inline, text files are shown as text, everything else shows its metadata. The app picks
+   that first file for you, so the pane is never empty: *On opening a folder, select* at the top
+   of the right pane chooses between the first file, the middle file, a random file, or nothing
+   at all. Folders are skipped when it picks, so you land on something with a preview.
 5. **Export** writes the list to a `.txt` file; **Import** reads one back.
 
 Both rule values are editable in the *Rules* box, and both are re-applied instantly to the

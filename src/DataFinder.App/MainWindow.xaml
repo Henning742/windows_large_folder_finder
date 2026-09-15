@@ -200,6 +200,15 @@
             <Button Content="Copy path" Style="{StaticResource ToolbarButton}" Command="{Binding CopyPathCommand}" />
             <Button Content="Open file" Style="{StaticResource ToolbarButton}" Command="{Binding OpenContentCommand}" />
           </StackPanel>
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0">
+            <TextBlock Text="On opening a folder, select" Style="{StaticResource FieldLabel}" />
+            <ComboBox Width="118" VerticalAlignment="Center"
+                      ItemsSource="{Binding AutoSelectOptions}"
+                      DisplayMemberPath="Text"
+                      SelectedValuePath="Mode"
+                      SelectedValue="{Binding AutoSelectMode}"
+                      ToolTip="The file the right pane selects on its own as soon as a folder is opened" />
+          </StackPanel>
           <TextBlock Text="{Binding ActiveFolderPath}" Style="{StaticResource PaneHeader}"
                      TextTrimming="CharacterEllipsis" ToolTip="{Binding ActiveFolderPath}" />
         </DockPanel>

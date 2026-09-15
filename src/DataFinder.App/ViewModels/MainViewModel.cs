@@ -13,6 +13,9 @@ using DataFinder.Core.Volumes;
 
 namespace DataFinder.App.ViewModels;
 
+/// <summary>One entry of the "select a file on its own" drop down.</summary>
+public sealed record AutoSelectOption(AutoSelectMode Mode, string Text);
+
 public sealed class MainViewModel : ObservableObject
 {
     private readonly IDialogService _dialogs;
@@ -37,6 +40,7 @@ public sealed class MainViewModel : ObservableObject
     private IReadOnlyList<ResultTreeNode> _visibleResults = Array.Empty<ResultTreeNode>();
     private ResultTreeNode? _selectedResultNode;
     private FileEntry? _selectedContent;
+    private AutoSelectMode _autoSelectMode = AutoSelectMode.FirstFile;
     private string _activeFolderPath = string.Empty;
     private ImageSource? _previewImage;
     private string _previewText = string.Empty;
@@ -78,6 +82,15 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<FolderResult> Results { get; } = new();
 
     public ObservableCollection<FileEntry> Contents { get; } = new();
+
+    /// <summary>The choices of the "select a file on its own" drop down, in the order they are shown.</summary>
+    public IReadOnlyList<AutoSelectOption> AutoSelectOptions { get; } = new[]
+    {
+        new AutoSelectOption(AutoSelectMode.FirstFile, "First file"),
+        new AutoSelectOption(AutoSelectMode.MiddleFile, "Middle file"),
+        new AutoSelectOption(AutoSelectMode.RandomFile, "Random file"),
+        new AutoSelectOption(AutoSelectMode.None, "Nothing"),
+    };
 
     public RelayCommand RefreshVolumesCommand { get; }
 
@@ -216,6 +229,13 @@ public sealed class MainViewModel : ObservableObject
                 StartPreviewLoad();
             }
         }
+    }
+
+    /// <summary>Which file the app selects by itself when a folder is opened.</summary>
+    public AutoSelectMode AutoSelectMode
+    {
+        get => _autoSelectMode;
+        set => SetProperty(ref _autoSelectMode, value);
     }
 
     public string ActiveFolderPath
@@ -672,6 +692,7 @@ public sealed class MainViewModel : ObservableObject
             }
 
             StatusText = $"{Contents.Count:N0} items in {ActiveFolderPath}.";
+            SelectContentAutomatically();
             return;
         }
 
@@ -699,6 +720,7 @@ public sealed class MainViewModel : ObservableObject
             }
 
             StatusText = $"{entries.Count:N0} items in {path}.";
+            SelectContentAutomatically();
         }
         catch (OperationCanceledException)
         {
@@ -708,6 +730,12 @@ public sealed class MainViewModel : ObservableObject
             PreviewMessage = exception.Message;
         }
     }
+
+    /// <summary>
+    /// Selects a file in the folder that was just opened, so the preview pane shows something
+    /// without a click. Which file depends on the drop down in the right pane.
+    /// </summary>
+    private void SelectContentAutomatically() => SelectedContent = AutoSelect.Pick(Contents, AutoSelectMode);
 
     private void NavigateUp()
     {
