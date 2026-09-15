@@ -221,6 +221,9 @@ public sealed class RawSchemaViewModel : ObservableObject
 
     public string FrameSizeText => _schema.FrameSizeText;
 
+    /// <summary>The layout, in the words the data type drop down uses.</summary>
+    public string DataTypeText => RawDataTypes.Describe(_schema.DataType);
+
     public string Description => _schema.Description;
 
     /// <summary>
@@ -236,6 +239,7 @@ public sealed class RawSchemaViewModel : ObservableObject
 
         OnPropertyChanged(nameof(SizeText));
         OnPropertyChanged(nameof(FrameSizeText));
+        OnPropertyChanged(nameof(DataTypeText));
         OnPropertyChanged(nameof(Description));
         Changed?.Invoke();
     }

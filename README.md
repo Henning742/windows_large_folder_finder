@@ -187,8 +187,10 @@ will try to decode, and the list of schematics. Suffixes are typed in freely - `
 the extension, so listing `.csv` by accident cannot take the text preview away from a CSV file.
 
 The schematics can be added to, changed, duplicated and removed, and the set that comes with the
-app can be brought back at any time. Those built-in ones are the recordings the reference scripts
-were written for:
+app can be brought back at any time. Changes apply as they are typed: the picture in the preview
+pane follows along while a width is being worked out. Like the scan choices, they last as long as
+the window is open rather than being written to disk. Those built-in ones are the recordings the
+reference scripts were written for:
 
 | Schematic | Layout |
 |---|---|

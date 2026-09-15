@@ -64,7 +64,7 @@
             </ListView.ItemContainerStyle>
             <ListView.View>
               <GridView>
-                <GridViewColumn Header="Show" Width="48">
+                <GridViewColumn Header="Show" Width="44">
                   <GridViewColumn.CellTemplate>
                     <DataTemplate>
                       <CheckBox IsChecked="{Binding IsShown, Mode=TwoWay}" VerticalAlignment="Center"
@@ -72,17 +72,9 @@
                     </DataTemplate>
                   </GridViewColumn.CellTemplate>
                 </GridViewColumn>
-                <GridViewColumn Header="Name" Width="190" DisplayMemberBinding="{Binding ListName}" />
+                <GridViewColumn Header="Name" Width="206" DisplayMemberBinding="{Binding ListName}" />
                 <GridViewColumn Header="Frame" Width="100" DisplayMemberBinding="{Binding SizeText}" />
-                <GridViewColumn Header="Per frame" Width="90" DisplayMemberBinding="{Binding FrameSizeText}" />
-                <GridViewColumn Header="Reads" Width="60">
-                  <GridViewColumn.CellTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding Description}" TextTrimming="CharacterEllipsis"
-                                 ToolTip="{Binding Description}" />
-                    </DataTemplate>
-                  </GridViewColumn.CellTemplate>
-                </GridViewColumn>
+                <GridViewColumn Header="Data type" Width="130" DisplayMemberBinding="{Binding DataTypeText}" />
               </GridView>
             </ListView.View>
           </ListView>

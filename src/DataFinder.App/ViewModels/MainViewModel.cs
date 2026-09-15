@@ -53,6 +53,9 @@ public sealed class MainViewModel : ObservableObject
     private string _previewMessage = "Select a folder on the left to see what is inside.";
     private IReadOnlyList<RawSchema> _previewSchemas = Array.Empty<RawSchema>();
     private RawSchema? _selectedPreviewSchema;
+    /// <summary>The suffixes the folder on screen was listed with, so it is only listed again when
+    /// that list really changed - and not on every keystroke in the dialog.</summary>
+    private IReadOnlyList<string> _appliedSuffixes = RawFileTypes.Default;
     private bool _showAllSchematics;
     private bool _isTilePreviewVisible;
     private bool _isImagePreviewVisible;
@@ -947,6 +950,7 @@ public sealed class MainViewModel : ObservableObject
         ScanReport? report = ReportFor(ActiveFolderPath);
         if (report is not null && report.Aggregation.TryGetRecordNumber(ActiveFolderPath, out uint resolvedRecord))
         {
+            _appliedSuffixes = DecodeSetup.Extensions;
             foreach (FileEntry entry in report.Index.GetChildren(
                 report.Aggregation,
                 resolvedRecord,
@@ -975,6 +979,7 @@ public sealed class MainViewModel : ObservableObject
             IReadOnlyList<FileEntry> entries = await Task.Run(
                 () => FileSystemListing.EnumerateChildren(path, suffixes),
                 cancellationToken);
+            _appliedSuffixes = suffixes;
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -1170,12 +1175,13 @@ public sealed class MainViewModel : ObservableObject
     {
         RebuildPreviewSchemas();
 
-        if (ActiveFolderPath.Length == 0)
+        if (ActiveFolderPath.Length == 0 || !SuffixesChanged())
         {
             StartPreviewLoad();
             return;
         }
 
+        _appliedSuffixes = DecodeSetup.Extensions;
         string? keep = SelectedContent?.FullPath;
         var items = Contents.ToList();
 
@@ -1202,19 +1208,30 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Refreshes the drop down of schematics, keeping the chosen one when it is still there.</summary>
     private void RebuildPreviewSchemas()
     {
-        RawSchema? previous = SelectedPreviewSchema;
+        RawSchema? previous = _selectedPreviewSchema;
         IReadOnlyList<RawSchema> schemas = DecodeSetup.UsableSchemas;
 
         PreviewSchemas = schemas;
-        SelectedPreviewSchema = previous is not null && schemas.Contains(previous)
+
+        // The choice is written straight to the field, so that the setter - which reloads the
+        // preview - does not fire in the middle of a settings change. The caller asks for one
+        // reload at the end instead.
+        RawSchema? next = previous is not null && schemas.Contains(previous)
             ? previous
             : schemas.FirstOrDefault();
 
-        // The same schematic may have been renamed or changed in the dialog, so the pane is told to
-        // read its title again.
-        OnPropertyChanged(nameof(SelectedPreviewSchema));
+        if (!ReferenceEquals(next, _selectedPreviewSchema))
+        {
+            _selectedPreviewSchema = next;
+            OnPropertyChanged(nameof(SelectedPreviewSchema));
+        }
+
         OnPropertyChanged(nameof(AllSchematicsSummary));
     }
+
+    /// <summary>True when the list of decoded file suffixes is not the one the folder was listed with.</summary>
+    private bool SuffixesChanged() =>
+        !_appliedSuffixes.SequenceEqual(DecodeSetup.Extensions, StringComparer.OrdinalIgnoreCase);
 
     private void OpenActiveFolder() => ShellService.OpenFolder(ActiveFolderPath);
 
