@@ -142,6 +142,47 @@ public sealed class ResultTreeTests
         Assert.Equal(new[] { nameof(ResultTreeNode.IsExpanded) }, changed);
     }
 
+    [Fact]
+    public void ShowsTheNoteThatIsKeptOnTheFolder()
+    {
+        FolderResult folder = Folder(@"D:\data\set1");
+        folder.Comment = "checked earlier";
+
+        IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[] { folder });
+        ResultTreeNode match = Assert.Single(Assert.Single(Assert.Single(roots).Children).Children);
+
+        Assert.Equal("checked earlier", match.Comment);
+    }
+
+    [Fact]
+    public void WritesANewNoteBackToTheFolderAndTellsTheList()
+    {
+        FolderResult folder = Folder(@"D:\data\set1");
+        ResultTreeNode match = Assert.Single(Assert.Single(Assert.Single(ResultTree.Build(new[] { folder })).Children).Children);
+        var changed = new List<string?>();
+        match.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        match.Comment = "worth another look";
+        match.Comment = "worth another look";
+
+        Assert.Equal("worth another look", folder.Comment);
+        Assert.Equal(new[] { nameof(ResultTreeNode.Comment) }, changed);
+    }
+
+    [Fact]
+    public void HasNoNoteOnTheFoldersThatDidNotMatch()
+    {
+        IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[] { Folder(@"D:\data\set1") });
+        ResultTreeNode drive = Assert.Single(roots);
+
+        Assert.Empty(drive.Comment);
+
+        drive.Comment = "this folder did not match the rules";
+
+        Assert.Empty(drive.Comment);
+        Assert.Null(drive.Result);
+    }
+
     private static FolderResult Folder(string path, long size = 1024) => new()
     {
         FullPath = path,

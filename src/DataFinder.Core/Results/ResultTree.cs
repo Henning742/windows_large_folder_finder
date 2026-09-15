@@ -42,6 +42,25 @@ public sealed class ResultTreeNode : INotifyPropertyChanged
     /// <summary>True when this folder matched the rules, false for the folders on the way to it.</summary>
     public bool IsMatch => Result is not null;
 
+    /// <summary>
+    /// The note about this folder. It is kept on the folder itself so it travels with the report,
+    /// and setting it here also tells the list that the row changed.
+    /// </summary>
+    public string Comment
+    {
+        get => Result?.Comment ?? string.Empty;
+        set
+        {
+            if (Result is null || string.Equals(Result.Comment, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Result.Comment = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Comment)));
+        }
+    }
+
     public bool IsExpanded
     {
         get => _isExpanded;

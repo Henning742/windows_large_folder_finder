@@ -60,7 +60,7 @@
 
     <Grid Grid.Row="2" Margin="0,8,0,0">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="480" MinWidth="340" />
+        <ColumnDefinition Width="600" MinWidth="340" />
         <ColumnDefinition Width="8" />
         <ColumnDefinition Width="*" MinWidth="380" />
       </Grid.ColumnDefinitions>
@@ -101,7 +101,7 @@
           </ListView.ItemContainerStyle>
           <ListView.View>
             <GridView>
-              <GridViewColumn Header="Folder" Width="250">
+              <GridViewColumn Header="Folder" Width="240">
                 <GridViewColumn.CellTemplate>
                   <DataTemplate>
                     <Grid Margin="{Binding Depth, Converter={StaticResource DepthToIndent}}">
@@ -130,7 +130,15 @@
                   </DataTemplate>
                 </GridViewColumn.CellTemplate>
               </GridViewColumn>
-              <GridViewColumn Header="Size" Width="78" DisplayMemberBinding="{Binding SizeText}" />
+              <GridViewColumn Header="Comment" Width="170">
+                <GridViewColumn.CellTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding Comment}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               Foreground="#555555" ToolTip="{Binding Comment}" />
+                  </DataTemplate>
+                </GridViewColumn.CellTemplate>
+              </GridViewColumn>
+              <GridViewColumn Header="Size" Width="76" DisplayMemberBinding="{Binding SizeText}" />
               <GridViewColumn Header="Files" Width="54" DisplayMemberBinding="{Binding FilesText}" />
               <GridViewColumn Header="Subdirs" Width="58" DisplayMemberBinding="{Binding SubfolderText}" />
             </GridView>

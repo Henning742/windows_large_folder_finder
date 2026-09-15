@@ -30,6 +30,7 @@ daemon, no dependencies to install.
    of the right pane chooses between the first file, the middle file, a random file, or nothing
    at all. Folders are skipped when it picks, so you land on something with a preview.
 5. Type a note about a folder in the *Comment* box under the path. It is saved with the report.
+   The note appears in the *Comment* column of the result list next to that folder.
 6. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
    records the volumes, the rules and how the scan went. **Import** reads a report back, notes
    included.

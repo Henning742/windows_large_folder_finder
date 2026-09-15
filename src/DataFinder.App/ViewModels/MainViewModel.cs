@@ -183,9 +183,10 @@ public sealed class MainViewModel : ObservableObject
                 return;
             }
 
-            if (SelectedResultNode?.Result is { } folder)
+            // The note lives on the folder, and the tree row shows it: the node forwards the change.
+            if (SelectedResultNode is { Result: not null } node)
             {
-                folder.Comment = value;
+                node.Comment = value;
             }
         }
     }
