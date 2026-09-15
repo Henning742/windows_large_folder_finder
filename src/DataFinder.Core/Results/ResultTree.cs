@@ -76,15 +76,31 @@ public sealed class ResultTreeNode : INotifyPropertyChanged
         }
     }
 
-    public string SizeText => Result?.SizeText ?? string.Empty;
+    public string SizeText => Result?.SizeText ?? (ShownSizeBytes > 0 ? ByteSize.Format(ShownSizeBytes) : string.Empty);
 
     public string FilesText => Result?.FilesText ?? string.Empty;
 
     public string SubfolderText => Result?.SubfolderText ?? string.Empty;
 
+    /// <summary>
+    /// The size the row shows: the folder's own when it matched the rules, and the sum of the
+    /// folders below it that matched when the row is only there to place them. A folder that did
+    /// not match is the way to a match, so its own size is of no interest - what is inside it is.
+    /// </summary>
+    public long ShownSizeBytes { get; internal set; }
+
+    /// <summary>How many folders below this one matched the rules.</summary>
+    public int MatchesBelow { get; internal set; }
+
     public string DetailText => Result is null
-        ? $"{FullPath}{Environment.NewLine}Shown to place the matches below it. This folder did not match the rules."
+        ? $"{FullPath}{Environment.NewLine}{DescribeWhatIsBelow()} This folder did not match the rules itself."
         : $"{FullPath}{Environment.NewLine}{Result.DetailText}";
+
+    private string DescribeWhatIsBelow()
+    {
+        string folders = MatchesBelow == 1 ? "1 folder below it" : $"{MatchesBelow:N0} folders below it";
+        return $"{ByteSize.Format(ShownSizeBytes)} in {folders} that matched the rules.";
+    }
 
     internal void AddChild(ResultTreeNode child) => _children.Add(child);
 
@@ -151,7 +167,45 @@ public static class ResultTree
         }
 
         Sort(roots);
+        RollUpSizes(roots);
         return roots;
+    }
+
+    /// <summary>
+    /// Works out what every row shows for its size. A folder that matched keeps its own size, which
+    /// already covers everything below it; a folder that only leads to matches gets the sum of
+    /// those. That is why the sum stops at a folder that matched instead of adding its children to
+    /// it as well.
+    /// </summary>
+    private static void RollUpSizes(IEnumerable<ResultTreeNode> nodes)
+    {
+        foreach (ResultTreeNode node in nodes)
+        {
+            RollUpSize(node);
+        }
+    }
+
+    private static void RollUpSize(ResultTreeNode node)
+    {
+        long sizeFromChildren = 0;
+        int matchesBelow = 0;
+
+        foreach (ResultTreeNode child in node.Children)
+        {
+            RollUpSize(child);
+            sizeFromChildren += child.ShownSizeBytes;
+            matchesBelow += child.MatchesBelow;
+        }
+
+        if (node.Result is { } result)
+        {
+            node.ShownSizeBytes = result.SizeBytes;
+            node.MatchesBelow = matchesBelow + 1;
+            return;
+        }
+
+        node.ShownSizeBytes = sizeFromChildren;
+        node.MatchesBelow = matchesBelow;
     }
 
     /// <summary>

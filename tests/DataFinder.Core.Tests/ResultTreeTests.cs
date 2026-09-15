@@ -7,6 +7,61 @@ namespace DataFinder.Core.Tests;
 public sealed class ResultTreeTests
 {
     [Fact]
+    public void AddsUpWhatIsBelowAFolderThatDidNotMatch()
+    {
+        IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[]
+        {
+            Folder(@"D:\data\set1", size: 3L * 1024 * 1024 * 1024),
+            Folder(@"D:\data\set2", size: 1L * 1024 * 1024 * 1024),
+        });
+
+        ResultTreeNode drive = Assert.Single(roots);
+        ResultTreeNode data = Assert.Single(drive.Children);
+
+        Assert.Equal(4L * 1024 * 1024 * 1024, data.ShownSizeBytes);
+        Assert.Equal("4 GB", data.SizeText);
+        Assert.Contains("2 folders below it", data.DetailText, StringComparison.Ordinal);
+        Assert.Equal(4L * 1024 * 1024 * 1024, drive.ShownSizeBytes);
+        Assert.Equal(2, drive.MatchesBelow);
+    }
+
+    [Fact]
+    public void DoesNotAddAFolderThatMatchedToTheFoldersBelowIt()
+    {
+        // D:\data is a match of its own and holds a match, so it is already part of its own size.
+        IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[]
+        {
+            Folder(@"D:\data", size: 10L * 1024 * 1024 * 1024),
+            Folder(@"D:\data\set1", size: 2L * 1024 * 1024 * 1024),
+        });
+
+        ResultTreeNode drive = Assert.Single(roots);
+        ResultTreeNode data = Assert.Single(drive.Children);
+
+        Assert.Equal(10L * 1024 * 1024 * 1024, data.ShownSizeBytes);
+        Assert.Equal("10 GB", data.SizeText);
+        Assert.Equal(2L * 1024 * 1024 * 1024, Assert.Single(data.Children).ShownSizeBytes);
+
+        // The drive is not a match, so it shows the one match under it and not both.
+        Assert.Equal(10L * 1024 * 1024 * 1024, drive.ShownSizeBytes);
+        Assert.Equal(2, drive.MatchesBelow);
+    }
+
+    [Fact]
+    public void LeavesAFolderThatDidNotMatchWithoutASizeUntilSomethingMatches()
+    {
+        IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[] { Folder(@"D:\data\set1", size: 1024) });
+
+        ResultTreeNode drive = Assert.Single(roots);
+        ResultTreeNode data = Assert.Single(drive.Children);
+
+        Assert.Equal("1 KB", drive.SizeText);
+        Assert.Equal("1 KB", data.SizeText);
+        Assert.Empty(drive.FilesText);
+        Assert.Empty(drive.SubfolderText);
+    }
+
+    [Fact]
     public void PutsAFolderUnderTheFoldersThatLeadToIt()
     {
         IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[] { Folder(@"D:\data\set1") });
