@@ -20,7 +20,10 @@ public sealed class FileEntry
 
     public PreviewKind PreviewKind { get; init; } = PreviewKind.None;
 
-    public string TypeText => IsDirectory ? "Folder" : "File";
+    /// <summary>What the type column says: a folder, a normal file, or one the decoder will read.</summary>
+    public string TypeText => IsDirectory
+        ? "Folder"
+        : PreviewKind == PreviewKind.Binary ? "Data" : "File";
 
     public string SizeText => ByteSize.Format(SizeBytes);
 

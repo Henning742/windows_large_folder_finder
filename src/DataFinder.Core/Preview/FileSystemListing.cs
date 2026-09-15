@@ -38,7 +38,7 @@ public static class FileSystemListing
         AttributesToSkip = FileAttributes.ReparsePoint,
     };
 
-    public static IReadOnlyList<FileEntry> EnumerateChildren(string folderPath)
+    public static IReadOnlyList<FileEntry> EnumerateChildren(string folderPath, IEnumerable<string>? decodeSuffixes = null)
     {
         var entries = new List<FileEntry>();
 
@@ -98,7 +98,7 @@ public static class FileSystemListing
                     FullPath = info.FullName,
                     IsDirectory = false,
                     SizeBytes = size,
-                    PreviewKind = PreviewClassifier.Classify(info.Name),
+                    PreviewKind = PreviewClassifier.Classify(info.Name, decodeSuffixes),
                 });
             }
         }
@@ -176,4 +176,3 @@ public static class FileSystemListing
         };
     }
 }
-

@@ -19,22 +19,33 @@ public static class PreviewClassifier
         ".pl", ".lua", ".r", ".m", ".swift", ".toml", ".properties", ".sln", ".gitignore", ".editorconfig",
     };
 
-    public static bool IsImageExtension(string pathOrName) => ImageExtensions.Contains(GetExtension(pathOrName));
+    public static bool IsImageExtension(string pathOrName) => ImageExtensions.Contains(ExtensionOf(pathOrName));
 
-    public static bool IsTextExtension(string pathOrName) => TextExtensions.Contains(GetExtension(pathOrName));
+    public static bool IsTextExtension(string pathOrName) => TextExtensions.Contains(ExtensionOf(pathOrName));
 
-    public static PreviewKind Classify(string pathOrName)
+    /// <summary>
+    /// What kind of preview a file gets. Files whose suffix the user listed for data decoding are
+    /// only offered to the decoder when nothing else already knows the extension, so listing a
+    /// suffix by mistake cannot take the text preview away from, say, a .csv file.
+    /// </summary>
+    public static PreviewKind Classify(string pathOrName, IEnumerable<string>? decodeSuffixes = null)
     {
-        string extension = GetExtension(pathOrName);
+        string extension = ExtensionOf(pathOrName);
         if (ImageExtensions.Contains(extension))
         {
             return PreviewKind.Image;
         }
 
-        return TextExtensions.Contains(extension) ? PreviewKind.Text : PreviewKind.None;
+        if (TextExtensions.Contains(extension))
+        {
+            return PreviewKind.Text;
+        }
+
+        return Raw.RawFileTypes.Matches(decodeSuffixes, pathOrName) ? PreviewKind.Binary : PreviewKind.None;
     }
 
-    private static string GetExtension(string pathOrName)
+    /// <summary>The extension of a name or path in lower case, the dot included; empty when there is none.</summary>
+    public static string ExtensionOf(string pathOrName)
     {
         if (string.IsNullOrEmpty(pathOrName))
         {
@@ -43,7 +54,6 @@ public static class PreviewClassifier
 
         int slash = pathOrName.LastIndexOfAny(new[] { '\\', '/' });
         int dot = pathOrName.LastIndexOf('.');
-        return dot > slash && dot >= 0 ? pathOrName[dot..] : string.Empty;
+        return dot > slash && dot >= 0 ? pathOrName[dot..].ToLowerInvariant() : string.Empty;
     }
 }
-

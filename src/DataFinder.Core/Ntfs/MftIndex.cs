@@ -149,7 +149,11 @@ public sealed class MftIndex
     }
 
     /// <summary>The contents of one folder: subfolders first, then files, each sorted by name.</summary>
-    public IReadOnlyList<FileEntry> GetChildren(AggregationResult aggregation, uint directoryRecordNumber, string directoryPath)
+    public IReadOnlyList<FileEntry> GetChildren(
+        AggregationResult aggregation,
+        uint directoryRecordNumber,
+        string directoryPath,
+        IEnumerable<string>? decodeSuffixes = null)
     {
         var entries = new List<FileEntry>();
 
@@ -179,7 +183,7 @@ public sealed class MftIndex
                 FullPath = WindowsPath.Combine(directoryPath, file.Name),
                 IsDirectory = false,
                 SizeBytes = file.Size,
-                PreviewKind = PreviewClassifier.Classify(file.Name),
+                PreviewKind = PreviewClassifier.Classify(file.Name, decodeSuffixes),
             });
         }
 
