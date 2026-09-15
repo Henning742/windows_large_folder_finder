@@ -151,24 +151,35 @@
       <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Center"
                     VerticalAlignment="Stretch" Background="#EEEEEE" />
 
-      <!-- Right pane: contents of the selected folder and a preview of the selected item -->
+      <!-- Right pane: either one folder's contents, or every folder of the list at once -->
       <Grid Grid.Column="2">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="2*" MinHeight="120" />
-          <RowDefinition Height="8" />
-          <RowDefinition Height="1.3*" MinHeight="120" />
+          <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
         <DockPanel Grid.Row="0">
-          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+          <!-- What the pane shows. The two panes below it are drawn one at a time. -->
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0">
+            <TextBlock Text="Right pane" Style="{StaticResource FieldLabel}" />
+            <ComboBox Width="184" VerticalAlignment="Center"
+                      ItemsSource="{Binding RightPaneOptions}"
+                      DisplayMemberPath="Text"
+                      SelectedValuePath="Mode"
+                      SelectedValue="{Binding RightPane}"
+                      ToolTip="What the right pane shows: the contents of the folder picked on the left, or every folder of the list at once with a few pictures of what is inside each of them" />
+          </StackPanel>
+
+          <!-- The rest of this row belongs to the contents pane, which is the one with one folder in it. -->
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right"
+                      Visibility="{Binding IsContentsPaneVisible, Converter={StaticResource BoolToVisibility}}">
             <Button Content="Up" Style="{StaticResource ToolbarButton}" Command="{Binding NavigateUpCommand}" />
             <Button Content="Open in Explorer" Style="{StaticResource ToolbarButton}" Command="{Binding OpenFolderCommand}" />
             <Button Content="Copy path" Style="{StaticResource ToolbarButton}" Command="{Binding CopyPathCommand}" />
             <Button Content="Open file" Style="{StaticResource ToolbarButton}" Command="{Binding OpenContentCommand}" />
           </StackPanel>
-          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0">
+          <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,10,0"
+                      Visibility="{Binding IsContentsPaneVisible, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Text="On opening a folder, select" Style="{StaticResource FieldLabel}" />
             <ComboBox Width="118" VerticalAlignment="Center"
                       ItemsSource="{Binding AutoSelectOptions}"
@@ -177,131 +188,240 @@
                       SelectedValue="{Binding AutoSelectMode}"
                       ToolTip="The file the right pane selects on its own as soon as a folder is opened" />
           </StackPanel>
-          <TextBlock Text="{Binding ActiveFolderPath}" Style="{StaticResource PaneHeader}"
-                     TextTrimming="CharacterEllipsis" ToolTip="{Binding ActiveFolderPath}" />
-        </DockPanel>
 
-        <DockPanel Grid.Row="1" Margin="0,6,0,0">
-          <TextBlock DockPanel.Dock="Left" Text="Comment" Style="{StaticResource FieldLabel}" />
-          <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
-                     Foreground="#B26A00" FontWeight="SemiBold"
-                     Text="not exported yet"
-                     ToolTip="Export writes the notes into the comment column of the CSV report. Until then they only live in this window."
-                     Visibility="{Binding HasUnsavedComments, Converter={StaticResource BoolToVisibility}}" />
-          <TextBox Text="{Binding SelectedComment, UpdateSourceTrigger=PropertyChanged}"
-                   IsEnabled="{Binding HasSelectedFolder}"
-                   ToolTip="A note about the selected folder. Export writes it to the Comment column of the CSV; import reads it back." />
-        </DockPanel>
-
-        <Border Grid.Row="2" Margin="0,6,0,0" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4">
-          <ListView x:Name="ContentsList"
-                    ItemsSource="{Binding Contents}"
-                    SelectedItem="{Binding SelectedContent}"
-                    MouseDoubleClick="ContentsList_MouseDoubleClick"
-                    BorderThickness="0"
-                    ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                    VirtualizingPanel.IsVirtualizing="True"
-                    VirtualizingPanel.VirtualizationMode="Recycling">
-            <ListView.View>
-              <GridView>
-                <GridViewColumn Header="Name" Width="320">
-                  <GridViewColumn.CellTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
-                    </DataTemplate>
-                  </GridViewColumn.CellTemplate>
-                </GridViewColumn>
-                <GridViewColumn Header="Type" Width="70" DisplayMemberBinding="{Binding TypeText}" />
-                <GridViewColumn Header="Size" Width="90" DisplayMemberBinding="{Binding SizeText}" />
-                <GridViewColumn Header="Items" Width="70" DisplayMemberBinding="{Binding ChildCountText}" />
-              </GridView>
-            </ListView.View>
-          </ListView>
-        </Border>
-
-        <GridSplitter Grid.Row="3" Height="8" HorizontalAlignment="Stretch"
-                      VerticalAlignment="Center" Background="#EEEEEE" />
-
-        <Border Grid.Row="4" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Background="#FAFAFA">
           <Grid>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-
-            <!-- How a data file is read, and where the rest of the decode settings live -->
-            <DockPanel Grid.Row="0" Margin="8,5,6,0">
-              <Button DockPanel.Dock="Right" Content="Decode settings..." Style="{StaticResource ToolbarButton}"
-                      MinWidth="0" Padding="8,2" Click="DecodeSettingsButton_Click"
-                      ToolTip="Which file types are read as data, and the schematics that are on offer" />
-              <WrapPanel Orientation="Horizontal">
-                <TextBlock Text="Preview" Style="{StaticResource PaneHeader}" Margin="0,0,12,0" />
-                <TextBlock Text="Schematic" Style="{StaticResource FieldLabel}" />
-                <ComboBox Width="220" VerticalAlignment="Center"
-                          ItemsSource="{Binding PreviewSchemas}"
-                          DisplayMemberPath="Name"
-                          SelectedItem="{Binding SelectedPreviewSchema}"
-                          IsEnabled="{Binding IsSingleSchematicMode}"
-                          ToolTip="{Binding SelectedPreviewSchema.Description}" />
-                <CheckBox Content="Show all ticked" VerticalAlignment="Center" Margin="12,0,0,0"
-                          IsChecked="{Binding ShowAllSchematics}"
-                          ToolTip="Draw the selected data file through every schematic that is ticked in Decode settings, side by side, instead of only the one in the drop down" />
-                <TextBlock Text="{Binding AllSchematicsSummary}" Foreground="#666666" VerticalAlignment="Center"
-                           Margin="8,0,0,0"
-                           Visibility="{Binding ShowAllSchematics, Converter={StaticResource BoolToVisibility}}" />
-                <CheckBox Content="Stretch" VerticalAlignment="Center" Margin="12,0,0,0"
-                          IsChecked="{Binding StretchPreview}" IsEnabled="{Binding CanStretchPreview}"
-                          ToolTip="Pin the darkest 2% of the frame to black and the brightest 2% to white. 16 bit recordings start stretched, because otherwise they are nearly black; 8 bit ones start as they are. This tick flips it for the look on screen." />
-              </WrapPanel>
-            </DockPanel>
-
-            <Grid Grid.Row="1">
-              <Image Source="{Binding PreviewImage}" Stretch="Uniform" Margin="8"
-                     StretchDirection="DownOnly"
-                     Visibility="{Binding IsImagePreviewVisible, Converter={StaticResource BoolToVisibility}}" />
-
-              <!-- One picture per schematic, so several ways of reading the same file can be compared -->
-              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                            Visibility="{Binding IsTilePreviewVisible, Converter={StaticResource BoolToVisibility}}">
-                <ItemsControl ItemsSource="{Binding PreviewTiles}" Margin="4">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                      <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Border Margin="4" Padding="5" CornerRadius="3" Background="White"
-                              BorderBrush="#DDDDDD" BorderThickness="1">
-                        <StackPanel MaxWidth="400">
-                          <TextBlock Text="{Binding Caption}" FontWeight="SemiBold"
-                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}" />
-                          <TextBlock Text="{Binding Detail}" Foreground="#666666" FontSize="11"
-                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
-                          <Image Source="{Binding Image}" MaxHeight="210" Margin="0,3,0,0"
-                                 Stretch="Uniform" StretchDirection="DownOnly"
-                                 Visibility="{Binding HasImage, Converter={StaticResource BoolToVisibility}}" />
-                          <TextBlock Text="{Binding Message}" Foreground="#B00020" TextWrapping="Wrap"
-                                     MaxWidth="390" Margin="0,3,0,0"
-                                     Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}" />
-                        </StackPanel>
-                      </Border>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
-
-              <TextBox Text="{Binding PreviewText, Mode=OneWay}" IsReadOnly="True"
-                       BorderThickness="0" Background="Transparent" Margin="6"
-                       FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" AcceptsReturn="True"
-                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                       Visibility="{Binding IsTextPreviewVisible, Converter={StaticResource BoolToVisibility}}" />
-              <TextBlock Text="{Binding PreviewMessage}" TextWrapping="Wrap" Margin="12"
-                         Foreground="#555555" VerticalAlignment="Top"
-                         Visibility="{Binding IsMessageVisible, Converter={StaticResource BoolToVisibility}}" />
-            </Grid>
+            <TextBlock Text="{Binding ActiveFolderPath}" Style="{StaticResource PaneHeader}"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding ActiveFolderPath}"
+                       Visibility="{Binding IsContentsPaneVisible, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Text="Every folder, with a few pictures of what is inside each of them"
+                       Style="{StaticResource PaneHeader}" TextTrimming="CharacterEllipsis"
+                       Visibility="{Binding IsGalleryVisible, Converter={StaticResource BoolToVisibility}}" />
           </Grid>
-        </Border>
+        </DockPanel>
+
+        <!-- The contents of the folder picked on the left, and a preview of the file picked here -->
+        <Grid Grid.Row="1" Margin="0,6,0,0"
+              Visibility="{Binding IsContentsPaneVisible, Converter={StaticResource BoolToVisibility}}">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" MinHeight="120" />
+            <RowDefinition Height="8" />
+            <RowDefinition Height="1.3*" MinHeight="120" />
+          </Grid.RowDefinitions>
+
+          <DockPanel Grid.Row="0">
+            <TextBlock DockPanel.Dock="Left" Text="Comment" Style="{StaticResource FieldLabel}" />
+            <TextBlock DockPanel.Dock="Right" Margin="8,0,0,0" VerticalAlignment="Center"
+                       Foreground="#B26A00" FontWeight="SemiBold"
+                       Text="not exported yet"
+                       ToolTip="Export writes the notes into the comment column of the CSV report. Until then they only live in this window."
+                       Visibility="{Binding HasUnsavedComments, Converter={StaticResource BoolToVisibility}}" />
+            <TextBox Text="{Binding SelectedComment, UpdateSourceTrigger=PropertyChanged}"
+                     IsEnabled="{Binding HasSelectedFolder}"
+                     ToolTip="A note about the selected folder. Export writes it to the Comment column of the CSV; import reads it back." />
+          </DockPanel>
+
+          <Border Grid.Row="1" Margin="0,6,0,0" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4">
+            <ListView x:Name="ContentsList"
+                      ItemsSource="{Binding Contents}"
+                      SelectedItem="{Binding SelectedContent}"
+                      MouseDoubleClick="ContentsList_MouseDoubleClick"
+                      BorderThickness="0"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling">
+              <ListView.View>
+                <GridView>
+                  <GridViewColumn Header="Name" Width="320">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
+                  <GridViewColumn Header="Type" Width="70" DisplayMemberBinding="{Binding TypeText}" />
+                  <GridViewColumn Header="Size" Width="90" DisplayMemberBinding="{Binding SizeText}" />
+                  <GridViewColumn Header="Items" Width="70" DisplayMemberBinding="{Binding ChildCountText}" />
+                </GridView>
+              </ListView.View>
+            </ListView>
+          </Border>
+
+          <GridSplitter Grid.Row="2" Height="8" HorizontalAlignment="Stretch"
+                        VerticalAlignment="Center" Background="#EEEEEE" />
+
+          <Border Grid.Row="3" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Background="#FAFAFA">
+            <Grid>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+              </Grid.RowDefinitions>
+
+              <!-- How a data file is read, and where the rest of the decode settings live -->
+              <DockPanel Grid.Row="0" Margin="8,5,6,0">
+                <Button DockPanel.Dock="Right" Content="Decode settings..." Style="{StaticResource ToolbarButton}"
+                        MinWidth="0" Padding="8,2" Click="DecodeSettingsButton_Click"
+                        ToolTip="Which file types are read as data, and the schematics that are on offer" />
+                <WrapPanel Orientation="Horizontal">
+                  <TextBlock Text="Preview" Style="{StaticResource PaneHeader}" Margin="0,0,12,0" />
+                  <TextBlock Text="Schematic" Style="{StaticResource FieldLabel}" />
+                  <ComboBox Width="220" VerticalAlignment="Center"
+                            ItemsSource="{Binding PreviewSchemas}"
+                            DisplayMemberPath="Name"
+                            SelectedItem="{Binding SelectedPreviewSchema}"
+                            IsEnabled="{Binding IsSingleSchematicMode}"
+                            ToolTip="{Binding SelectedPreviewSchema.Description}" />
+                  <CheckBox Content="Show all ticked" VerticalAlignment="Center" Margin="12,0,0,0"
+                            IsChecked="{Binding ShowAllSchematics}"
+                            ToolTip="Draw the selected data file through every schematic that is ticked in Decode settings, side by side, instead of only the one in the drop down" />
+                  <TextBlock Text="{Binding AllSchematicsSummary}" Foreground="#666666" VerticalAlignment="Center"
+                             Margin="8,0,0,0"
+                             Visibility="{Binding ShowAllSchematics, Converter={StaticResource BoolToVisibility}}" />
+                  <CheckBox Content="Stretch" VerticalAlignment="Center" Margin="12,0,0,0"
+                            IsChecked="{Binding StretchPreview}" IsEnabled="{Binding CanStretchPreview}"
+                            ToolTip="Pin the darkest 2% of the frame to black and the brightest 2% to white. 16 bit recordings start stretched, because otherwise they are nearly black; 8 bit ones start as they are. This tick flips it for the look on screen." />
+                </WrapPanel>
+              </DockPanel>
+
+              <Grid Grid.Row="1">
+                <Image Source="{Binding PreviewImage}" Stretch="Uniform" Margin="8"
+                       StretchDirection="DownOnly"
+                       Visibility="{Binding IsImagePreviewVisible, Converter={StaticResource BoolToVisibility}}" />
+
+                <!-- One picture per schematic, so several ways of reading the same file can be compared -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              Visibility="{Binding IsTilePreviewVisible, Converter={StaticResource BoolToVisibility}}">
+                  <ItemsControl ItemsSource="{Binding PreviewTiles}" Margin="4">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Border Margin="4" Padding="5" CornerRadius="3" Background="White"
+                                BorderBrush="#DDDDDD" BorderThickness="1">
+                          <StackPanel MaxWidth="400">
+                            <TextBlock Text="{Binding Caption}" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}" />
+                            <TextBlock Text="{Binding Detail}" Foreground="#666666" FontSize="11"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
+                            <Image Source="{Binding Image}" MaxHeight="210" Margin="0,3,0,0"
+                                   Stretch="Uniform" StretchDirection="DownOnly"
+                                   Visibility="{Binding HasImage, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Text="{Binding Message}" Foreground="#B00020" TextWrapping="Wrap"
+                                       MaxWidth="390" Margin="0,3,0,0"
+                                       Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}" />
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+
+                <TextBox Text="{Binding PreviewText, Mode=OneWay}" IsReadOnly="True"
+                         BorderThickness="0" Background="Transparent" Margin="6"
+                         FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         Visibility="{Binding IsTextPreviewVisible, Converter={StaticResource BoolToVisibility}}" />
+                <TextBlock Text="{Binding PreviewMessage}" TextWrapping="Wrap" Margin="12"
+                           Foreground="#555555" VerticalAlignment="Top"
+                           Visibility="{Binding IsMessageVisible, Converter={StaticResource BoolToVisibility}}" />
+              </Grid>
+            </Grid>
+          </Border>
+        </Grid>
+
+        <!-- Every folder of the list at once, each with a few pictures of what is inside it -->
+        <Grid Grid.Row="1" Margin="0,6,0,0"
+              Visibility="{Binding IsGalleryVisible, Converter={StaticResource BoolToVisibility}}">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <DockPanel Grid.Row="0" Margin="0,0,0,4">
+            <Button DockPanel.Dock="Right" Content="Gather again" Style="{StaticResource ToolbarButton}"
+                    Command="{Binding RefreshGalleryCommand}"
+                    ToolTip="Pick a fresh set of pictures for every folder. The pictures are picked at random, so two runs show different ones." />
+            <TextBlock Text="{Binding GallerySummary}" Foreground="#666666" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding GallerySummary}" />
+          </DockPanel>
+
+          <Border Grid.Row="1" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Background="#FFFFFF">
+            <ListBox ItemsSource="{Binding GalleryFolders}" BorderThickness="0" Background="Transparent"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling">
+              <ListBox.ItemContainerStyle>
+                <!-- The cards are read rather than picked, so a row has no selection of its own. -->
+                <Style TargetType="ListBoxItem">
+                  <Setter Property="Padding" Value="0" />
+                  <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                  <Setter Property="Template">
+                    <Setter.Value>
+                      <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter />
+                      </ControlTemplate>
+                    </Setter.Value>
+                  </Setter>
+                </Style>
+              </ListBox.ItemContainerStyle>
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <Border Margin="8,8,8,0" Padding="10" CornerRadius="4"
+                          Background="#FAFBFC" BorderBrush="#E3E6EA" BorderThickness="1">
+                    <StackPanel>
+                      <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Show in the tree" MinWidth="0" Padding="6,2"
+                                Style="{StaticResource ToolbarButton}"
+                                Command="{Binding DataContext.ShowInTreeCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                CommandParameter="{Binding}"
+                                ToolTip="Pick this folder in the list on the left and go back to showing one folder at a time" />
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                      </DockPanel>
+                      <TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="#666666"
+                                 TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                      <TextBlock Text="{Binding Summary}" Foreground="#4B5563" Margin="0,3,0,0" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Comment}" Margin="0,3,0,0" TextWrapping="Wrap" Foreground="#6B7280"
+                                 Visibility="{Binding HasComment, Converter={StaticResource BoolToVisibility}}" />
+
+                      <ItemsControl ItemsSource="{Binding Pictures}" Margin="0,6,0,0">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border Margin="0,0,8,8" Padding="5" CornerRadius="4" Background="#FFFFFF"
+                                    BorderBrush="#E3E6EA" BorderThickness="1" Cursor="Hand"
+                                    MouseLeftButtonDown="GalleryPicture_MouseLeftButtonDown"
+                                    ToolTip="{Binding Hint}">
+                              <StackPanel Width="220">
+                                <Image Source="{Binding Bytes, Converter={StaticResource ThumbnailFromBytes}}"
+                                       Width="210" Height="132" Stretch="Uniform" />
+                                <TextBlock Text="{Binding Caption}" FontSize="12" Margin="0,3,0,0"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}" />
+                                <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="#6B7280"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <TextBlock Text="{Binding Note}" FontSize="11" Foreground="#6B7280" Margin="0,2,0,0"
+                                 TextWrapping="Wrap"
+                                 Visibility="{Binding HasNote, Converter={StaticResource BoolToVisibility}}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Border>
+        </Grid>
       </Grid>
     </Grid>
 

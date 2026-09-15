@@ -33,6 +33,12 @@ daemon, no dependencies to install.
    folder, select* at the top of the right pane chooses between the first file, the middle file, a
    random file, or nothing at all. Folders are skipped when it picks, so you land on something
    with a preview.
+   *Right pane* at the top of that pane chooses what it shows at all: **The selected folder** is
+   the one folder being read and the preview of the file picked in it, and **Every folder, with
+   pictures** is the whole list at once, a card per folder with a few pictures of what is inside
+   it. The pictures are picked at random from the pictures and the recordings of each folder, the
+   same way the web page picks them, and *Gather again* picks a fresh set. A long list is gathered
+   with the progress bar filling as it goes, and *Cancel* stops it.
 5. A data file is read with the *schematic* chosen next to it: the frame size, the header in front
    of each frame and the kind of numbers the pixels are. **Decode settings...** keeps that list of
    schematics and the file suffixes to try them on. Tick *Show every ticked schematic at once* and
@@ -192,6 +198,12 @@ The page is a tree of every row on the left and a section per folder that matche
   few pictures of what is inside.
 - Everything folds away: the sections, and the branches of the tree itself. *Expand all* and
   *Collapse all* at the top do the lot.
+
+The bar between the tree and the folders is dragged left or right, so either side gets the room it
+needs - a long path in the tree, or a wide row of thumbnails. Where it is left is remembered for the
+next time the page is opened, a double click puts it back as it was, and the arrow keys move it
+while it holds the focus. One level of nesting in the tree steps in by a few pixels only, so even a
+deep path keeps the width of the pane.
 
 The pictures are picked at random from the pictures and the recordings directly inside a folder, so
 two runs over the same folder do not have to look the same. A picture file is carried as it is; a

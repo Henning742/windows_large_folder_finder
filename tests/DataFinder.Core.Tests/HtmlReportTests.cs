@@ -149,7 +149,7 @@ public sealed class HtmlReportTests
     }
 
     [Fact]
-    public void IndentsEveryLevelOfTheTreeByOneTwisty()
+    public void StepsEachLevelOfTheTreeInByALittle()
     {
         string html = HtmlReport.Build(
             Written,
@@ -160,12 +160,40 @@ public sealed class HtmlReportTests
                 Match(@"D:\data\set1", "set1", 2, 1024),
             });
 
-        // One nested list per level, and the stylesheet indents each of them and draws the guide line.
+        // One nested list per level, and the stylesheet steps each of them in by a few pixels only,
+        // so that a deep path does not eat the width of the pane.
         Assert.Equal(3, Count(html, "<ul class=\"tree\">"));
-        Assert.Contains("ul.tree ul.tree { margin-left: 8px; padding-left: 10px; border-left: 1px solid #e3e6ea; }", html, StringComparison.Ordinal);
+        Assert.Contains("ul.tree ul.tree { margin-left: 2px; padding-left: 4px; border-left: 1px solid #e3e6ea; }", html, StringComparison.Ordinal);
 
         // A folder without children still gets the twisty column, so its name lines up with the rest.
         Assert.Contains("<div class=\"leaf\"><span class=\"twisty\" aria-hidden=\"true\"></span>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PutsABarBetweenTheTreeAndTheFoldersThatCanBeDragged()
+    {
+        string html = HtmlReport.Build(
+            Written,
+            new[]
+            {
+                Parent("D:\\", "D:\\", 0, 3L * 1024 * 1024 * 1024, matchesBelow: 1),
+                Match(@"D:\data\set1", "set1", 1, 1024),
+            });
+
+        // The bar sits between the tree and the folders, and says what it is for.
+        int tree = html.IndexOf("<nav id=\"contents\">", StringComparison.Ordinal);
+        int bar = html.IndexOf("id=\"splitter\"", StringComparison.Ordinal);
+        int folders = html.IndexOf("<main>", StringComparison.Ordinal);
+
+        Assert.True(tree >= 0 && bar > tree && folders > bar, "the bar should sit between the tree and the folders");
+        Assert.Contains("role=\"separator\"", html, StringComparison.Ordinal);
+
+        // Dragging it writes the width of the tree, which the stylesheet reads: one thing says what
+        // the width is, so the drag, the remembered width and the layout cannot disagree.
+        Assert.Contains("cursor: col-resize", html, StringComparison.Ordinal);
+        Assert.Contains("var(--nav-width, minmax(220px, 24%)) 8px minmax(0, 1fr)", html, StringComparison.Ordinal);
+        Assert.Contains("setProperty('--nav-width'", html, StringComparison.Ordinal);
+        Assert.Contains("localStorage.setItem('datafinder:treeWidth'", html, StringComparison.Ordinal);
     }
 
     [Fact]

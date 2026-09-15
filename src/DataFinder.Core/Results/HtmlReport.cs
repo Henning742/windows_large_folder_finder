@@ -109,6 +109,7 @@ public static class HtmlReport
 
         page.AppendLine("<div class=\"page\">");
         WriteContents(page, folders);
+        WriteSplitter(page);
         WriteFolders(page, folders);
         page.AppendLine("</div>");
 
@@ -225,6 +226,15 @@ public static class HtmlReport
         WriteList(page, Nest(folders, SectionNumbers(folders)), 0);
         page.AppendLine("</nav>");
     }
+
+    /// <summary>
+    /// The bar between the tree and the folders. It is dragged left and right, so either side can be
+    /// given the room: the tree for a long path, the folders for a row of thumbnails.
+    /// </summary>
+    private static void WriteSplitter(StringBuilder page) =>
+        page.AppendLine(
+            "<div class=\"splitter\" id=\"splitter\" role=\"separator\" aria-orientation=\"vertical\" " +
+            "tabindex=\"0\" title=\"Drag left or right to widen or narrow the tree; double click to put it back\"></div>");
 
     /// <summary>One item of the contents tree, with the section its link points at.</summary>
     private sealed record TreeItem(HtmlReportFolder Folder, int Section, List<TreeItem> Children);
@@ -497,16 +507,24 @@ public static class HtmlReport
                    background: #ffffff; cursor: pointer; }
           button:hover { border-color: #0a66c2; color: #0a66c2; }
           .hint { color: #6b7280; font-size: 12px; }
-          .page { display: grid; grid-template-columns: minmax(260px, 22%) 1fr; gap: 16px; padding: 16px 22px 40px; }
+          /* The tree, the bar that is dragged to resize it, and the folders. The width of the tree
+             is a variable so the drag, the remembered width and the stylesheet all say one thing. */
+          .page { display: grid; grid-template-columns: var(--nav-width, minmax(220px, 24%)) 8px minmax(0, 1fr);
+                  gap: 6px; padding: 16px 22px 40px; }
+          .splitter { align-self: stretch; cursor: col-resize; background: #e3e6ea; border-radius: 3px;
+                      touch-action: none; }
+          .splitter:hover, .splitter:focus-visible, body.resizing .splitter { background: #0a66c2; outline: none; }
+          body.resizing { cursor: col-resize; user-select: none; }
           nav { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow: auto;
                 background: #ffffff; border: 1px solid #dcdfe4; border-radius: 6px; padding: 10px 12px; }
           nav h2 { margin: 0 0 8px; font-size: 15px; }
 
           /* The contents tree. Each row is the twisty in a column of its own and then the row
              itself, which in turn holds the name, the size and the "N below" note. Names, sizes and
-             notes therefore line up all the way down, and one more level indents by one twisty. */
+             notes therefore line up all the way down. One level of nesting steps in by a few pixels
+             only - enough to read by, so that a deep path does not eat the width of the pane. */
           ul.tree { list-style: none; margin: 0; padding: 0; }
-          ul.tree ul.tree { margin-left: 8px; padding-left: 10px; border-left: 1px solid #e3e6ea; }
+          ul.tree ul.tree { margin-left: 2px; padding-left: 4px; border-left: 1px solid #e3e6ea; }
           ul.tree li { margin: 1px 0; }
           ul.tree summary, ul.tree .leaf { display: grid; grid-template-columns: 16px minmax(0, 1fr);
                                            align-items: center; }
@@ -554,7 +572,8 @@ public static class HtmlReport
           figcaption .file { font-size: 12px; word-break: break-all; }
           figcaption .detail { font-size: 11px; color: #6b7280; }
           section.folder:target { border-color: #0a66c2; box-shadow: 0 0 0 2px rgba(10,102,194,.15); }
-          @media (max-width: 900px) { .page { grid-template-columns: 1fr; } nav { position: static; max-height: none; } }
+          @media (max-width: 900px) { .page { grid-template-columns: 1fr; } .splitter { display: none; }
+                                      nav { position: static; max-height: none; } }
         </style>
         """;
 
@@ -603,6 +622,85 @@ public static class HtmlReport
             window.addEventListener('hashchange', function () { openTarget(); markCurrent(); });
             openTarget();
             markCurrent();
+
+            // The bar between the tree and the folders is dragged left or right, so either side can
+            // be given the room. Where it was left is remembered for the next time the page is
+            // opened, and a double click puts it back where the stylesheet wants it.
+            (function () {
+              var page = document.querySelector('.page');
+              var tree = document.getElementById('contents');
+              var splitter = document.getElementById('splitter');
+              if (!page || !tree || !splitter) { return; }
+
+              var least = 150;   // a folder name and its size still have to fit in the tree
+              var most = 900;    // and the folders keep the rest of the window
+              var stored = null;
+
+              try { stored = window.localStorage.getItem('datafinder:treeWidth'); } catch (error) { stored = null; }
+
+              var width = parseFloat(stored);
+              if (isFinite(width) && width > 0) { setWidth(width); }
+
+              function clamp(value) {
+                var room = page.clientWidth - 220;
+                return Math.max(least, Math.min(value, Math.max(least, Math.min(most, room))));
+              }
+
+              function setWidth(value) {
+                page.style.setProperty('--nav-width', Math.round(clamp(value)) + 'px');
+              }
+
+              function currentWidth() { return tree.getBoundingClientRect().width; }
+
+              function remember() {
+                try { window.localStorage.setItem('datafinder:treeWidth', String(Math.round(currentWidth()))); }
+                catch (error) { }
+              }
+
+              function forget() {
+                page.style.removeProperty('--nav-width');
+                try { window.localStorage.removeItem('datafinder:treeWidth'); } catch (error) { }
+              }
+
+              splitter.addEventListener('pointerdown', function (event) {
+                if (event.pointerType === 'mouse' && event.button !== 0) { return; }
+
+                var startX = event.clientX;
+                var startWidth = currentWidth();
+                event.preventDefault();
+                document.body.classList.add('resizing');
+
+                // Keeping the pointer on the bar means the drag carries on when it leaves the bar,
+                // which is what a divider is expected to do.
+                try { splitter.setPointerCapture(event.pointerId); } catch (error) { }
+
+                function move(moved) { setWidth(startWidth + (moved.clientX - startX)); }
+
+                function stop() {
+                  document.body.classList.remove('resizing');
+                  splitter.removeEventListener('pointermove', move);
+                  splitter.removeEventListener('pointerup', stop);
+                  splitter.removeEventListener('pointercancel', stop);
+                  remember();
+                }
+
+                splitter.addEventListener('pointermove', move);
+                splitter.addEventListener('pointerup', stop);
+                splitter.addEventListener('pointercancel', stop);
+              });
+
+              // A double click puts the tree back to the width the stylesheet asks for.
+              splitter.addEventListener('dblclick', forget);
+
+              splitter.addEventListener('keydown', function (event) {
+                var step = event.shiftKey ? 60 : 20;
+                if (event.key === 'ArrowLeft') { setWidth(currentWidth() - step); remember(); }
+                else if (event.key === 'ArrowRight') { setWidth(currentWidth() + step); remember(); }
+                else if (event.key === 'Home' || event.key === 'End') { forget(); }
+                else { return; }
+                event.preventDefault();
+              });
+            })();
           })();
         </script>
         """;

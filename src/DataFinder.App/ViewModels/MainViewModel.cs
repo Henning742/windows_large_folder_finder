@@ -20,6 +20,12 @@ public sealed record AutoSelectOption(AutoSelectMode Mode, string Text);
 
 public sealed class MainViewModel : ObservableObject
 {
+    /// <summary>How many pictures each folder shows in the gallery.</summary>
+    private const int GalleryPicturesPerFolder = 4;
+
+    /// <summary>How much picture the whole gallery may carry at once.</summary>
+    private const long GalleryMaxPictureBytes = 24L * 1024 * 1024;
+
     private readonly IDialogService _dialogs;
     private readonly PreviewService _previewService = new();
     private readonly RemainingTimeEstimator _importRemaining = new();
@@ -27,6 +33,7 @@ public sealed class MainViewModel : ObservableObject
     private CancellationTokenSource? _scanCancellation;
     private CancellationTokenSource? _contentsCancellation;
     private CancellationTokenSource? _previewCancellation;
+    private CancellationTokenSource? _galleryCancellation;
 
     /// <summary>One report per scanned volume, kept so the preview pane can read the folder tree.</summary>
     private readonly List<ScanReport> _reports = new();
@@ -46,6 +53,8 @@ public sealed class MainViewModel : ObservableObject
     private ResultTreeNode? _selectedResultNode;
     private FileEntry? _selectedContent;
     private AutoSelectMode _autoSelectMode = AutoSelectMode.FirstFile;
+    private RightPaneMode _rightPane = RightPaneMode.Contents;
+    private string _gallerySummary = "Nothing is on show yet.";
     private string _selectedComment = string.Empty;
     private string _activeFolderPath = string.Empty;
     private ImageSource? _previewImage;
@@ -93,7 +102,17 @@ public sealed class MainViewModel : ObservableObject
         CopyPathCommand = new RelayCommand(CopyActivePath, () => ActiveFolderPath.Length > 0);
         NavigateUpCommand = new RelayCommand(NavigateUp, () => CanNavigateUp);
         RelaunchElevatedCommand = new RelayCommand(RelaunchElevated, () => !IsElevated);
+        RefreshGalleryCommand = new RelayCommand(() => StartGalleryLoad(), () => IsGalleryVisible && Results.Count > 0 && !IsScanning);
+        ShowInTreeCommand = new RelayCommand(
+            parameter => ShowGalleryFolderInTree(parameter as GalleryFolder),
+            parameter => parameter is GalleryFolder);
     }
+
+    /// <summary>
+    /// Says that a row of the result list is the one to look at. The list scrolls to it, which the
+    /// view model cannot do itself.
+    /// </summary>
+    public event EventHandler<ResultTreeNode>? ResultRowRevealed;
 
     /// <summary>
     /// The drives and rules the *Scan...* dialog edits. It is kept here so the choices survive the
@@ -114,6 +133,12 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The pictures of the selected data file, one per schematic that was asked for.</summary>
     public ObservableCollection<DecodeTile> PreviewTiles { get; } = new();
 
+    /// <summary>
+    /// The folders of the whole list, each with a few pictures of what is inside it. It is filled
+    /// while the right pane is showing it, and emptied as soon as the list it came from changes.
+    /// </summary>
+    public ObservableCollection<GalleryFolder> GalleryFolders { get; } = new();
+
     /// <summary>The choices of the "select a file on its own" drop down, in the order they are shown.</summary>
     public IReadOnlyList<AutoSelectOption> AutoSelectOptions { get; } = new[]
     {
@@ -121,6 +146,13 @@ public sealed class MainViewModel : ObservableObject
         new AutoSelectOption(AutoSelectMode.MiddleFile, "Middle file"),
         new AutoSelectOption(AutoSelectMode.RandomFile, "Random file"),
         new AutoSelectOption(AutoSelectMode.None, "Nothing"),
+    };
+
+    /// <summary>The choices of the "what the right pane shows" drop down, in the order they are shown.</summary>
+    public IReadOnlyList<RightPaneOption> RightPaneOptions { get; } = new[]
+    {
+        new RightPaneOption(RightPaneMode.Contents, "The selected folder"),
+        new RightPaneOption(RightPaneMode.AllFolders, "Every folder, with pictures"),
     };
 
     public RelayCommand CancelCommand { get; }
@@ -147,6 +179,12 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand NavigateUpCommand { get; }
 
     public RelayCommand RelaunchElevatedCommand { get; }
+
+    /// <summary>Picks a fresh set of pictures for every folder on show in the gallery.</summary>
+    public RelayCommand RefreshGalleryCommand { get; }
+
+    /// <summary>Picks a folder of the gallery in the result list, and goes back to the contents pane.</summary>
+    public RelayCommand ShowInTreeCommand { get; }
 
     public string ResultFilter
     {
@@ -256,6 +294,47 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _autoSelectMode;
         set => SetProperty(ref _autoSelectMode, value);
+    }
+
+    /// <summary>
+    /// What the right pane shows: the contents of the folder picked on the left, or every folder of
+    /// the list at once with a few pictures of what is inside each of them.
+    /// </summary>
+    public RightPaneMode RightPane
+    {
+        get => _rightPane;
+        set
+        {
+            if (!SetProperty(ref _rightPane, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(IsContentsPaneVisible));
+            OnPropertyChanged(nameof(IsGalleryVisible));
+
+            if (IsGalleryVisible)
+            {
+                StartGalleryLoad();
+            }
+            else
+            {
+                CancelGalleryLoad();
+            }
+        }
+    }
+
+    /// <summary>True while the pane shows the contents of one folder.</summary>
+    public bool IsContentsPaneVisible => _rightPane == RightPaneMode.Contents;
+
+    /// <summary>True while the pane shows every folder of the list, pictures and all.</summary>
+    public bool IsGalleryVisible => _rightPane == RightPaneMode.AllFolders;
+
+    /// <summary>What there is to say about the gallery: how far it has got, and what it ended up with.</summary>
+    public string GallerySummary
+    {
+        get => _gallerySummary;
+        private set => SetProperty(ref _gallerySummary, value);
     }
 
     public string ActiveFolderPath
@@ -508,6 +587,7 @@ public sealed class MainViewModel : ObservableObject
         _scanCancellation?.Cancel();
         _contentsCancellation?.Cancel();
         _previewCancellation?.Cancel();
+        CancelGalleryLoad();
     }
 
     /// <summary>True when the window may close. False when the user wants to keep their notes.</summary>
@@ -571,6 +651,7 @@ public sealed class MainViewModel : ObservableObject
         ClearSession();
         _lastSettings = settings;
         Results.Clear();
+        ClearGallery();
         MarkCommentsSaved();
         RebuildResultTree();
         UpdateResultSummary();
@@ -657,6 +738,7 @@ public sealed class MainViewModel : ObservableObject
             _scanStopwatch = null;
             _scanCancellation?.Dispose();
             _scanCancellation = null;
+            RefreshGalleryIfShown();
         }
     }
 
@@ -767,6 +849,7 @@ public sealed class MainViewModel : ObservableObject
         // this list is exported as.
         _lastSettings = null;
         Results.Clear();
+        ClearGallery();
         MarkCommentsSaved();
         RebuildResultTree();
         UpdateResultSummary();
@@ -825,6 +908,7 @@ public sealed class MainViewModel : ObservableObject
             RemainingText = string.Empty;
             _scanCancellation?.Dispose();
             _scanCancellation = null;
+            RefreshGalleryIfShown();
         }
     }
 
@@ -1043,6 +1127,296 @@ public sealed class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Fills the gallery: every folder of the list at once, each with a few pictures of what is
+    /// inside it, picked at random. It is the same work the web page does, and it reads the folders
+    /// the same way, so what the window shows and what the page shows are the same thing.
+    /// </summary>
+    private void StartGalleryLoad()
+    {
+        CancelGalleryLoad();
+        GalleryFolders.Clear();
+
+        if (Results.Count == 0)
+        {
+            GallerySummary = "There is nothing in the list yet. Scan a drive or import a report first.";
+            return;
+        }
+
+        if (IsScanning)
+        {
+            // A scan or an import is still reading the list, so the gallery waits for it rather than
+            // gathering half of a list that is about to be replaced.
+            GallerySummary = "The list is still being read; the pictures are gathered as soon as it is done.";
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _galleryCancellation = cancellation;
+        _ = LoadGalleryAsync(cancellation);
+    }
+
+    /// <summary>
+    /// Stops a gathering run that is under way. What it had gathered is either replaced by the next
+    /// run or left on the screen; either way the window stops saying it is busy.
+    /// </summary>
+    private void CancelGalleryLoad()
+    {
+        CancellationTokenSource? cancellation = _galleryCancellation;
+        _galleryCancellation = null;
+
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        cancellation.Cancel();
+
+        // The busy state belongs to whatever else is running too - a scan, an import or the web page
+        // - so only the gallery's own share of it is given up here.
+        if (_scanCancellation is null)
+        {
+            IsScanning = false;
+            ProgressValue = 0;
+            RemainingText = string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Empties the gallery, which is what the list it was drawn from changing means for it. While
+    /// it is not the pane on show there is no reason to gather it again: it is gathered when it is
+    /// asked for.
+    /// </summary>
+    private void ClearGallery()
+    {
+        CancelGalleryLoad();
+        GalleryFolders.Clear();
+    }
+
+    /// <summary>
+    /// Gathers the gallery again after the list it was drawn from has changed. While the gallery is
+    /// not the pane on show there is nothing to gather for: it is gathered when it is asked for.
+    /// </summary>
+    private void RefreshGalleryIfShown()
+    {
+        if (IsGalleryVisible)
+        {
+            StartGalleryLoad();
+        }
+    }
+
+    private async Task LoadGalleryAsync(CancellationTokenSource cancellation)
+    {
+        CancellationToken token = cancellation.Token;
+        IsScanning = true;
+        ProgressValue = 0;
+        RemainingText = "Estimating how long this will take...";
+        GallerySummary = "Gathering the pictures...";
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var remaining = new RemainingTimeEstimator();
+
+        // Each folder goes on the screen as soon as it is done, so a long list fills while the run
+        // is still going instead of leaving the pane empty until the end.
+        int gathered = 0;
+        var progress = new Progress<GalleryStep>(step =>
+        {
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            GalleryFolders.Add(step.Folder);
+            gathered += step.Folder.Pictures.Count;
+
+            double fraction = step.FoldersTotal == 0 ? 1d : (double)step.FoldersDone / step.FoldersTotal;
+            ProgressValue = fraction * 100d;
+            RemainingText = DescribeRemaining(remaining.Update(fraction, stopwatch.Elapsed));
+            StatusText = $"Looking inside {step.Folder.FullPath}...";
+            GallerySummary = $"{step.FoldersDone:N0} of {step.FoldersTotal:N0} folders, {gathered:N0} pictures so far.";
+        });
+
+        try
+        {
+            // The gallery carries every folder of the list, not only the rows the filter is showing.
+            List<ResultTreeNode> folders = ResultTree.All(ResultTree.Build(Results))
+                .Where(node => node.IsMatch)
+                .ToList();
+
+            IReadOnlyList<string> suffixes = DecodeSetup.Extensions;
+            IReadOnlyList<RawSchema> schemas = DecodeSetup.ShownSchemas.Count > 0
+                ? DecodeSetup.ShownSchemas
+                : DecodeSetup.UsableSchemas;
+            bool stretch = StretchPreview;
+
+            GalleryTotals totals = await Task.Run(
+                () => GatherGallery(folders, suffixes, schemas, stretch, progress, token),
+                token);
+
+            if (!token.IsCancellationRequested)
+            {
+                GallerySummary = DescribeGallery(folders.Count, totals);
+                StatusText = totals.Pictures == 0
+                    ? $"Looked inside {FolderCount(folders.Count)}; nothing there could be shown as a picture."
+                    : $"Gathered {totals.Pictures:N0} pictures from {FolderCount(folders.Count)}.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            GallerySummary = exception.Message;
+            StatusText = "Gathering the pictures failed.";
+        }
+        finally
+        {
+            // Only the run that is still the current one clears the busy state: a run that was
+            // replaced left that to the one that replaced it.
+            if (ReferenceEquals(_galleryCancellation, cancellation))
+            {
+                _galleryCancellation = null;
+
+                if (_scanCancellation is null)
+                {
+                    IsScanning = false;
+                    ProgressValue = 0;
+                    RemainingText = string.Empty;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the folders, taking a few pictures out of each. It runs off the UI thread and hands
+    /// each folder over as soon as it is done, so the gallery fills while the run is still going.
+    /// </summary>
+    private GalleryTotals GatherGallery(
+        IReadOnlyList<ResultTreeNode> folders,
+        IReadOnlyList<string> decodeSuffixes,
+        IReadOnlyList<RawSchema> schemas,
+        bool stretch,
+        IProgress<GalleryStep> progress,
+        CancellationToken cancellationToken)
+    {
+        var finder = new FolderPictureFinder(new HtmlReportLimits
+        {
+            PicturesPerFolder = GalleryPicturesPerFolder,
+            MaxTotalPictureBytes = GalleryMaxPictureBytes,
+        });
+
+        for (int index = 0; index < folders.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            ResultTreeNode node = folders[index];
+
+            FolderPictures found = node.Result is { Exists: false }
+                ? new FolderPictures(
+                    Array.Empty<FolderPreviewPicture>(),
+                    "The folder is not there any more, so there is nothing to show.")
+                : finder.Find(node.FullPath, ListFilesForPage, decodeSuffixes, schemas, stretch, cancellationToken);
+
+            var pictures = new List<GalleryPicture>(found.Pictures.Count);
+            foreach (FolderPreviewPicture picture in found.Pictures)
+            {
+                pictures.Add(new GalleryPicture(
+                    picture.Caption,
+                    picture.Note,
+                    Path.Combine(node.FullPath, picture.Caption),
+                    picture.Bytes));
+            }
+
+            progress.Report(new GalleryStep(DescribeFolder(node, pictures, found.Note), index + 1, folders.Count));
+        }
+
+        return new GalleryTotals(finder.Pictures, finder.LeftOut);
+    }
+
+    /// <summary>One card of the gallery: the folder, what is in it, and the pictures that came out of it.</summary>
+    private static GalleryFolder DescribeFolder(
+        ResultTreeNode node,
+        IReadOnlyList<GalleryPicture> pictures,
+        string? note) => new()
+    {
+        Name = node.Name,
+        FullPath = node.FullPath,
+        Summary = node.Result?.DetailText ?? string.Empty,
+        Comment = node.Comment,
+        Note = note,
+        Pictures = pictures,
+    };
+
+    /// <summary>What the gallery says once it has the lot: how many folders, and how many pictures.</summary>
+    private static string DescribeGallery(int folders, GalleryTotals totals)
+    {
+        string leftOut = totals.LeftOut switch
+        {
+            0 => string.Empty,
+            1 => " 1 picture was left out because the gallery was full.",
+            _ => $" {totals.LeftOut:N0} pictures were left out because the gallery was full.",
+        };
+
+        string inside = folders == 1 ? "it" : "them";
+
+        return totals.Pictures == 0
+            ? $"{FolderCount(folders)}, with nothing inside that could be shown as a picture.{leftOut}"
+            : $"{FolderCount(folders)}, with {totals.Pictures:N0} pictures of what is inside {inside}, picked at random.{leftOut}";
+    }
+
+    private static string FolderCount(int folders) => folders == 1 ? "1 folder" : $"{folders:N0} folders";
+
+    /// <summary>Picks a folder of the gallery in the result list, and goes back to the contents pane.</summary>
+    private void ShowGalleryFolderInTree(GalleryFolder? folder)
+    {
+        if (folder is null)
+        {
+            return;
+        }
+
+        ResultTreeNode? node = ResultTree.All(_resultRoots)
+            .FirstOrDefault(candidate => string.Equals(candidate.FullPath, folder.FullPath, StringComparison.OrdinalIgnoreCase));
+
+        if (node is null)
+        {
+            return;
+        }
+
+        RightPane = RightPaneMode.Contents;
+        ExpandTheWayTo(_resultRoots, node.FullPath);
+        SelectedResultNode = node;
+        ResultRowRevealed?.Invoke(this, node);
+    }
+
+    /// <summary>
+    /// Opens every folder on the way to a row, so that the row itself is part of the list on
+    /// screen and can be picked. Returns false when the row is not in the tree at all.
+    /// </summary>
+    private static bool ExpandTheWayTo(IReadOnlyList<ResultTreeNode> nodes, string path)
+    {
+        foreach (ResultTreeNode node in nodes)
+        {
+            if (string.Equals(node.FullPath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (ExpandTheWayTo(node.Children, path))
+            {
+                node.IsExpanded = true;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>How far the gallery has got, and the folder it has just finished.</summary>
+    private sealed record GalleryStep(GalleryFolder Folder, int FoldersDone, int FoldersTotal);
+
+    /// <summary>What the whole gallery ended up holding.</summary>
+    private sealed record GalleryTotals(int Pictures, int LeftOut);
+
+    /// <summary>
     /// What sits inside a folder, for the web page: the scan that is still in memory answers when
     /// it can, and the file system answers for imported folders and for anything else. The scan
     /// index costs nothing to ask, which is what keeps a big report quick.
@@ -1080,12 +1454,14 @@ public sealed class MainViewModel : ObservableObject
 
         Results.Clear();
         ClearSession();
+        ClearGallery();
         MarkCommentsSaved();
         ScanSummary = string.Empty;
         RebuildResultTree();
         UpdateResultSummary();
         ShowFolder(string.Empty);
         PreviewMessage = "Select a folder on the left to see what is inside.";
+        RefreshGalleryIfShown();
         StatusText = "Results cleared.";
     }
 
@@ -1106,7 +1482,12 @@ public sealed class MainViewModel : ObservableObject
             ? null
             : _reports.FirstOrDefault(report => path.StartsWith(report.Volume.RootPath, StringComparison.OrdinalIgnoreCase));
 
-    private void CancelRunningWork() => _scanCancellation?.Cancel();
+    /// <summary>Stops whatever is running: a scan, an import, the web page, or gathering the gallery.</summary>
+    private void CancelRunningWork()
+    {
+        _scanCancellation?.Cancel();
+        _galleryCancellation?.Cancel();
+    }
 
     private void ShowFolder(string path)
     {

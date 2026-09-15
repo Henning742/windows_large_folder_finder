@@ -163,6 +163,39 @@ public sealed class PreviewService
         }
     }
 
+    /// <summary>
+    /// Turns the bytes of a picture into something an Image control can draw, at the size a
+    /// thumbnail needs rather than the size the file is. It is frozen on the way out, so the picture
+    /// can be made off the UI thread and drawn on it - which is what the gallery does, one folder
+    /// after another, without the window waiting.
+    /// </summary>
+    public static ImageSource? ToThumbnail(byte[] bytes, int pixelWidth)
+    {
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+
+            // A picture bigger than the thumbnail is decoded down to it; a smaller one is left alone.
+            if (ReadPixelWidth(bytes) > pixelWidth)
+            {
+                bitmap.DecodePixelWidth = pixelWidth;
+            }
+
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Reads the pixel width from the image header without decoding the pixels.</summary>
     private static int ReadPixelWidth(byte[] bytes)
     {

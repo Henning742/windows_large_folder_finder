@@ -7,6 +7,7 @@
 
     <infra:DepthToIndentConverter x:Key="DepthToIndent" />
     <infra:BoolToHiddenVisibilityConverter x:Key="BoolToHiddenVisibility" />
+    <infra:ThumbnailFromBytesConverter x:Key="ThumbnailFromBytes" />
 
     <Style x:Key="FieldLabel" TargetType="TextBlock">
       <Setter Property="VerticalAlignment" Value="Center" />
