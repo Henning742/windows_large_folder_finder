@@ -47,6 +47,80 @@ public sealed class CsvResultFormatTests : IDisposable
     }
 
     [Fact]
+    public void ReadsTheNumbersBackWithTheRow()
+    {
+        var written = new List<FolderResult> { Folder(@"D:\data\set1", 200 * 1024 * 1024, "checked on monday") };
+
+        ResultRow row = Assert.Single(CsvResultFormat.Parse(CsvResultFormat.Serialize(written)));
+
+        ReportedFolderNumbers numbers = Assert.IsType<ReportedFolderNumbers>(row.Numbers);
+        Assert.Equal(200L * 1024 * 1024, numbers.SizeBytes);
+        Assert.Equal(600L * 1024 * 1024, numbers.TotalSizeBytes);
+        Assert.Equal(3, numbers.DirectFileCount);
+        Assert.Equal(1, numbers.SubfolderCount);
+        Assert.Equal(9L, numbers.TotalFileCount);
+        Assert.True(numbers.Exists);
+    }
+
+    [Fact]
+    public void LeavesARowWithoutNumbersWhenTheReportDoesNotHoldThemAll()
+    {
+        // A report that was edited down to the paths and notes it has: there is nothing to show a
+        // folder from, and half a row would be worse than measuring the folder.
+        const string text = """
+            Path,Comment,Size
+            C:\data\one,worth a look,200 MB
+            """;
+
+        ResultRow row = Assert.Single(CsvResultFormat.Parse(text));
+
+        Assert.Equal(@"C:\data\one", row.Path);
+        Assert.Equal("worth a look", row.Comment);
+        Assert.Null(row.Numbers);
+    }
+
+    [Fact]
+    public void LeavesARowWithoutNumbersWhenOneOfThemCannotBeRead()
+    {
+        const string text = """
+            Path,SizeBytes,TotalSizeBytes,DirectFiles,Subfolders,TotalFiles,Exists
+            C:\data\one,1024,2048,3,1,not a number,yes
+            """;
+
+        ResultRow row = Assert.Single(CsvResultFormat.Parse(text));
+
+        Assert.Null(row.Numbers);
+    }
+
+    [Fact]
+    public void ReadsTheExistenceFlagARowWasWrittenWith()
+    {
+        var written = new List<FolderResult> { Folder(@"D:\data\set1", 1024) };
+        string text = CsvResultFormat.Serialize(written).Replace(",yes\r\n", ",no\r\n", StringComparison.Ordinal);
+
+        ResultRow row = Assert.Single(CsvResultFormat.Parse(text));
+
+        Assert.False(Assert.IsType<ReportedFolderNumbers>(row.Numbers).Exists);
+    }
+
+    [Fact]
+    public void ReadsTheNumbersOfAReportThatLeavesTheExistenceFlagOut()
+    {
+        const string text = """
+            Path,SizeBytes,TotalSizeBytes,DirectFiles,Subfolders,TotalFiles
+            C:\data\one,1024,2048,3,1,9
+            """;
+
+        ReportedFolderNumbers numbers = Assert.IsType<ReportedFolderNumbers>(Assert.Single(CsvResultFormat.Parse(text)).Numbers);
+
+        Assert.Equal(1024L, numbers.SizeBytes);
+        Assert.Equal(2048L, numbers.TotalSizeBytes);
+        Assert.Equal(3, numbers.DirectFileCount);
+        Assert.Equal(1, numbers.SubfolderCount);
+        Assert.Equal(9L, numbers.TotalFileCount);
+    }
+
+    [Fact]
     public void QuotesPathsAndCommentsThatACellWouldOtherwiseBreak()
     {
         var written = new List<FolderResult>

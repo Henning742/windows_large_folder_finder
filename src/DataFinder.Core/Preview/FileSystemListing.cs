@@ -128,7 +128,7 @@ public static class FileSystemListing
 
         int directFileCount = 0;
         long directSize = 0;
-        int subfolderCount = 0;
+        var subfolders = new List<string>();
 
         try
         {
@@ -144,7 +144,7 @@ public static class FileSystemListing
                 }
             }
 
-            subfolderCount = Directory.EnumerateDirectories(folderPath, "*", TopLevelOptions).Count();
+            subfolders.AddRange(Directory.EnumerateDirectories(folderPath, "*", TopLevelOptions));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
@@ -155,10 +155,16 @@ public static class FileSystemListing
 
         try
         {
-            foreach (FileInfo file in new DirectoryInfo(folderPath).EnumerateFiles("*", RecursiveOptions))
+            // Everything below the folder, one subfolder at a time. The files directly inside it
+            // were counted above: walking the folder itself here would count them a second time,
+            // which is what used to make an imported folder read bigger than it is.
+            foreach (string subfolder in subfolders)
             {
-                totalSize += file.Length;
-                totalFileCount++;
+                foreach (FileInfo file in new DirectoryInfo(subfolder).EnumerateFiles("*", RecursiveOptions))
+                {
+                    totalSize += file.Length;
+                    totalFileCount++;
+                }
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
@@ -172,7 +178,7 @@ public static class FileSystemListing
             DirectSizeBytes = directSize,
             TotalSizeBytes = totalSize,
             TotalFileCount = totalFileCount,
-            SubfolderCount = subfolderCount,
+            SubfolderCount = subfolders.Count,
         };
     }
 }

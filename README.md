@@ -168,12 +168,20 @@ archived together:
 
 A report is read back by column name, so a file that was edited or reordered still imports, and a
 plain list of paths with no header at all works too. Blank rows, rows that start with `#` and
-repeated paths are dropped. Importing recovers the paths and the notes only, so the app measures
-each folder straight from the file system to fill in the size and file-count columns. A folder that
-no longer exists is kept in the list and marked `not found`.
+repeated paths are dropped.
+
+A report holds the size and the file counts of every folder it lists, and importing one shows those:
+the folders are not read again, so importing a report of thousands of folders costs about as much
+as reading the file. What is shown is the folder as the scan found it, which is the point of reading
+a report back rather than scanning again. Each folder is still looked at to see whether it is
+there, and one that has gone is kept in the list and marked `not found`.
+
+A list that carries no numbers - a plain list of paths, or a report that was edited down to its
+paths and notes - is measured from the file system instead, which is where those columns come from
+in the first place.
 
 Reports written by older versions (one folder per line, text after `#` is a comment) are still
-readable; they simply have no notes.
+readable; they simply have no notes, and are measured like any other list of paths.
 
 ## The web page
 

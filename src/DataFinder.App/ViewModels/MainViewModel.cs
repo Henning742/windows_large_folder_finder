@@ -920,25 +920,9 @@ public sealed class MainViewModel : ObservableObject
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            ResultRow row = rows[index];
-            string path = row.Path;
-            FolderMeasurement measurement = FileSystemListing.Measure(path);
-
-            results.Add(new FolderResult
-            {
-                FullPath = path,
-                Comment = row.Comment,
-                RecordNumber = 0,
-                DirectFileCount = measurement.DirectFileCount,
-                DirectSizeBytes = measurement.DirectSizeBytes,
-                TotalSizeBytes = measurement.TotalSizeBytes,
-                SizeBytes = measurement.TotalSizeBytes,
-                SubfolderCount = measurement.SubfolderCount,
-                TotalFileCount = measurement.TotalFileCount,
-                SizeIncludesSubfolders = true,
-                Exists = measurement.Exists,
-            });
-
+            // A report the app wrote carries every number, and there the row is described from the
+            // report; a list of bare paths is measured from the file system instead.
+            results.Add(ImportedFolder.Describe(rows[index]));
             progress?.Report(index + 1);
         }
 
