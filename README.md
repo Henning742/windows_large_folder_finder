@@ -15,6 +15,9 @@ daemon, no dependencies to install.
 2. Press **Scan**. The app reads each volume's master file table in turn and applies two rules:
    - the folder is bigger than *N* MB (200 MB by default), and
    - more than *N* files sit **directly** inside it (200 by default).
+   The progress bar fills while it runs, and the line next to it says how much longer the whole
+   run is going to take, worked out from how far it has got. Importing a report estimates the same
+   way.
 3. Matched folders appear in the left pane as a folder tree, sorted by full path. Folders that
    matched are in **bold**; the plain rows above them are the folders on the way there, shown so
    the tree keeps its shape. Every folder has a triangle to expand or collapse it, and *Expand
@@ -195,10 +198,11 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-92 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+112 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
 `$FILE_NAME`, cycles, missing records), the folder tree and rule evaluation, the human readable
 size parser, the CSV and JSON report round trip (quoting, column lookup, the relative path between
-the two files), the tree that the results are drawn as, and the choice of file to select on its own.
+the two files), the tree that the results are drawn as, the choice of file to select on its own,
+and the estimate of how much longer a scan will take.

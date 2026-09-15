@@ -30,6 +30,8 @@
           <Button Content="Export..." Style="{StaticResource ToolbarButton}" Command="{Binding ExportCommand}" />
           <Button Content="Clear" Style="{StaticResource ToolbarButton}" Command="{Binding ClearResultsCommand}" />
         </StackPanel>
+        <TextBlock DockPanel.Dock="Right" Text="{Binding RemainingText}" MinWidth="150" Margin="12,0,0,0"
+                   VerticalAlignment="Center" TextAlignment="Right" Foreground="#0A66C2" />
         <ProgressBar Height="17" Margin="16,0,0,0" VerticalAlignment="Center"
                      Minimum="0" Maximum="100" Value="{Binding ProgressValue, Mode=OneWay}" />
       </DockPanel>
@@ -179,11 +181,16 @@
               <GridViewColumn Header="Folder" Width="250">
                 <GridViewColumn.CellTemplate>
                   <DataTemplate>
-                    <StackPanel Orientation="Horizontal" Margin="{Binding Depth, Converter={StaticResource DepthToIndent}}">
+                    <Grid Margin="{Binding Depth, Converter={StaticResource DepthToIndent}}">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
                       <ToggleButton Style="{StaticResource TreeExpanderToggle}"
                                     IsChecked="{Binding IsExpanded, Mode=TwoWay}"
                                     Visibility="{Binding HasChildren, Converter={StaticResource BoolToHiddenVisibility}}" />
-                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DetailText}">
+                      <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                 VerticalAlignment="Center" ToolTip="{Binding DetailText}">
                         <TextBlock.Style>
                           <Style TargetType="TextBlock">
                             <Setter Property="FontWeight" Value="SemiBold" />
@@ -196,7 +203,7 @@
                           </Style>
                         </TextBlock.Style>
                       </TextBlock>
-                    </StackPanel>
+                    </Grid>
                   </DataTemplate>
                 </GridViewColumn.CellTemplate>
               </GridViewColumn>

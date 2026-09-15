@@ -9,6 +9,7 @@ using DataFinder.Core.Models;
 using DataFinder.Core.Ntfs;
 using DataFinder.Core.Preview;
 using DataFinder.Core.Results;
+using DataFinder.Core.Util;
 using DataFinder.Core.Volumes;
 
 namespace DataFinder.App.ViewModels;
@@ -20,6 +21,7 @@ public sealed class MainViewModel : ObservableObject
 {
     private readonly IDialogService _dialogs;
     private readonly PreviewService _previewService = new();
+    private readonly RemainingTimeEstimator _importRemaining = new();
 
     private CancellationTokenSource? _scanCancellation;
     private CancellationTokenSource? _contentsCancellation;
@@ -30,6 +32,8 @@ public sealed class MainViewModel : ObservableObject
 
     private string? _importedFrom;
     private ScanSettings? _lastSettings;
+    private ScanTimeEstimator? _scanRemaining;
+    private System.Diagnostics.Stopwatch? _scanStopwatch;
 
     private string _minSizeText = "200";
     private string _minFileCountText = "200";
@@ -52,6 +56,7 @@ public sealed class MainViewModel : ObservableObject
     private bool _isScanning;
     private bool _isElevated;
     private double _progressValue;
+    private string _remainingText = string.Empty;
     private string _statusText = "Ready. Choose a drive and press Scan.";
     private string _resultSummary = "No results yet.";
     private string _scanWarning = string.Empty;
@@ -351,6 +356,16 @@ public sealed class MainViewModel : ObservableObject
         private set => SetProperty(ref _progressValue, value);
     }
 
+    /// <summary>
+    /// How much longer the running scan is going to take, in words. Empty when nothing is running,
+    /// and a short "estimating" note during the first moments of a scan, when the rate says nothing.
+    /// </summary>
+    public string RemainingText
+    {
+        get => _remainingText;
+        private set => SetProperty(ref _remainingText, value);
+    }
+
     public string StatusText
     {
         get => _statusText;
@@ -518,6 +533,10 @@ public sealed class MainViewModel : ObservableObject
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var scanner = new NtfsVolumeScanner();
 
+        _scanStopwatch = stopwatch;
+        _scanRemaining = new ScanTimeEstimator(volumes);
+        RemainingText = "Estimating how long this will take...";
+
         try
         {
             for (int index = 0; index < volumes.Count; index++)
@@ -584,6 +603,9 @@ public sealed class MainViewModel : ObservableObject
         {
             IsScanning = false;
             ProgressValue = 0;
+            RemainingText = string.Empty;
+            _scanRemaining = null;
+            _scanStopwatch = null;
             _scanCancellation?.Dispose();
             _scanCancellation = null;
         }
@@ -613,13 +635,25 @@ public sealed class MainViewModel : ObservableObject
 
     private void OnScanProgress(ScanProgress progress, VolumeInfo volume, int volumeIndex, int volumeCount)
     {
-        // Each drive counts for the same share of the bar, and the share of the drive being read
-        // fills from there.
-        ProgressValue = (volumeIndex + progress.Fraction) / volumeCount * 100d;
+        // Each drive fills its own share of the bar, and how long the whole run will take is worked
+        // out from the share that is done.
+        TimeSpan? remaining = _scanRemaining?.Update(volumeIndex, progress.Fraction, _scanStopwatch?.Elapsed ?? TimeSpan.Zero);
+
+        ProgressValue = _scanRemaining is null
+            ? (volumeIndex + progress.Fraction) / volumeCount * 100d
+            : _scanRemaining.Fraction(volumeIndex, progress.Fraction) * 100d;
+
+        RemainingText = DescribeRemaining(remaining);
         StatusText =
             $"{volume.DriveLetter}: {progress.Stage}: {progress.ItemsProcessed:N0} of {progress.TotalItems:N0} records - " +
             $"{progress.FoldersFound:N0} folders seen.";
     }
+
+    /// <summary>The estimate in words, so the status bar can show it next to the progress bar.</summary>
+    private static string DescribeRemaining(TimeSpan? remaining) =>
+        remaining is null
+            ? "Estimating how long this will take..."
+            : $"About {DurationText.Format(remaining.Value)} left";
 
     private async Task ImportAsync()
     {
@@ -660,9 +694,15 @@ public sealed class MainViewModel : ObservableObject
         StatusText = $"Reading {rows.Count:N0} folders...";
 
         int total = rows.Count;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        _importRemaining.Reset();
+        RemainingText = "Estimating how long this will take...";
+
         var progress = new Progress<int>(done =>
         {
-            ProgressValue = total == 0 ? 0 : (double)done / total * 100d;
+            double fraction = total == 0 ? 0d : (double)done / total;
+            ProgressValue = fraction * 100d;
+            RemainingText = DescribeRemaining(_importRemaining.Update(fraction, stopwatch.Elapsed));
             StatusText = $"Reading folder {done:N0} of {total:N0}...";
         });
 
@@ -696,6 +736,7 @@ public sealed class MainViewModel : ObservableObject
         {
             IsScanning = false;
             ProgressValue = 0;
+            RemainingText = string.Empty;
             _scanCancellation?.Dispose();
             _scanCancellation = null;
         }
