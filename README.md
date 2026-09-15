@@ -22,8 +22,10 @@ daemon, no dependencies to install.
    way.
 3. Matched folders appear in the left pane as a folder tree, sorted by full path. Folders that
    matched are in **bold**; the plain rows above them are the folders on the way there, shown so
-   the tree keeps its shape. Every folder has a triangle to expand or collapse it, and *Expand
-   all* / *Collapse all* do the whole tree at once.
+   the tree keeps its shape. Every row shows a size, including the plain ones: a folder that did
+   not match shows the sum of the folders below it that did, so a drive whose matches add up to two
+   terabytes says so instead of showing an empty cell. Every folder has a triangle to expand or
+   collapse it, and *Expand all* / *Collapse all* do the whole tree at once.
 4. Click one and its contents appear on the right; select a file to see a preview. Images are
    shown inline, text files are shown as text, and a raw recording (`.dat`, `.raw`, `.bin` and
    friends) is decoded into a picture - see *Reading data files*. Everything else shows its
@@ -43,6 +45,8 @@ daemon, no dependencies to install.
 7. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
    records the volumes, the rules and how the scan went. The notes are written to the CSV's
    comment column and the marker goes away. **Import** reads a report back, notes included.
+8. **Web page...** writes the whole list out as one stand-alone HTML file with a few thumbnails of
+   what is inside each folder - see *The web page*.
 
 The status bar keeps a note of which drives and which rules the results on screen came from.
 
@@ -165,6 +169,49 @@ no longer exists is kept in the list and marked `not found`.
 Reports written by older versions (one folder per line, text after `#` is a comment) are still
 readable; they simply have no notes.
 
+## The web page
+
+**Web page...** writes everything on screen into one `.html` file that stands on its own: no folder
+of pictures next to it, no internet, no program needed to open it. It is for the moment the list
+has to go to somebody else - or to a later version of yourself - and the question is still the one
+the app answers: *which of these folders is worth a look inside?*
+
+The page is a tree of every row on the left and a section per folder that matched on the right:
+
+- The tree is the same one the window shows, parents and all, and every row carries its size. A
+  folder that did not match shows the sum of the folders below it, so the way to a match still says
+  how much is down there. Clicking a row opens what it leads to, so a click anywhere lands on a
+  folder with something in it.
+- Each section says the full path, the size, the file counts and the note you typed, and shows a
+  few pictures of what is inside.
+- Everything folds away: the sections, and the tree itself. *Expand all* and *Collapse all* at the
+  top do the lot.
+
+The pictures are picked at random from the pictures and the recordings directly inside a folder, so
+two runs over the same folder do not have to look the same. A picture file is carried as it is; a
+recording is decoded with the first of the schematics ticked in *Decode settings* that manages it,
+and the caption says which one that was - a thumbnail never leaves you guessing how it was read. A
+folder with nothing showable says so rather than showing nothing.
+
+A run is bounded, so that a list of hundreds of folders ends and the file stays sendable:
+
+| Bound | How much |
+|---|---|
+| Pictures per folder | 6 |
+| Candidates looked for per folder | 40 |
+| Files looked at per folder | 4,000 |
+| One picture | 4 MB |
+| All the pictures together | 48 MB |
+
+Whatever a bound leaves out is said under the folder. The rest costs almost nothing: the folders of
+a scan are read from the index the app already has in memory, so only imported lists make it walk
+the disk again. Twelve folders with five pictures each come out as about 90 KB of HTML in well
+under a second; the progress bar, the estimate and *Cancel* cover a list big enough to take real
+time.
+
+The notes travel with the page, but writing one does not count as exporting them: the *not exported
+yet* marker stays up until the CSV is written.
+
 ## Reading data files
 
 A recording - `.dat`, `.raw`, `.bin`, `.data` - is not a picture, it is numbers. To show it, the
@@ -258,6 +305,9 @@ Two details are worth knowing, because they decide what shows up:
 - Decoding is meant for looking, not for converting: one frame at a time, no files written, and a
   schematic whose frame works out to more than 256 MB is refused rather than read. Showing ten
   schematics at once costs about a fifth of a second on a 960 x 514 recording.
+- A web page carries its pictures inside itself, so it is as big as its thumbnails are. The bounds
+  in *The web page* are what keeps that in hand; a folder with more in it than a bound allows is
+  marked as such instead of quietly dropping the rest.
 
 ## Project layout
 
@@ -266,7 +316,7 @@ Two details are worth knowing, because they decide what shows up:
 | `src/DataFinder.Core` | The scanning engine. Targets plain `net8.0` with no Windows-only code, so it builds and runs anywhere - including in the Linux CI job. |
 | `src/DataFinder.Core/Ntfs` | Boot sector, data run list decoding, MFT record parsing, the record reader and the folder tree. |
 | `src/DataFinder.Core/Preview/Raw` | The data file decoder: the schematics, the frame reader and the pixel conversions, plus the set of schematics that ships with the app. |
-| `src/DataFinder.Core/Results` | The report formats: the CSV that is written, the JSON file next to it, the older text list, and the tree the results are drawn as. |
+| `src/DataFinder.Core/Results` | The report formats: the tree the results are drawn as, the CSV that is written with the JSON file next to it, the older text list, and the stand-alone web page with the code that gathers its thumbnails. |
 | `src/DataFinder.App` | The WPF windows (`net8.0-windows`) - the main window, the *Scan...* dialog and the *Decode settings* dialog - plus the view models and services. Deliberately thin: it displays what the core produces. |
 | `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder so the parser is tested without a real drive. |
 | `build.yml`, `app.manifest` | The CI workflow and the app manifest (unelevated start, per-monitor DPI, long path aware). |
@@ -277,7 +327,7 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-182 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+209 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
@@ -287,4 +337,6 @@ the two files), the tree that the results are drawn as, the choice of file to se
 the estimate of how much longer a scan will take, and the data file decoder: every layout, the
 stretch (including the one 8 bit data gets when it is asked for, and the crop it is worked out
 from), the header and frame skipping, packed colour, the schematics the app ships with, and the
-list of file suffixes the preview decodes.
+list of file suffixes the preview decodes. The web page has its own set: the tree and the sizes it
+rolls up, the escaping, the pictures as parts of the page, and the PNG writer, which is checked by
+unpacking what it wrote the way a browser would.
