@@ -661,6 +661,7 @@ public sealed class MainViewModel : ObservableObject
             RebuildResultTree();
             UpdateResultSummary();
             StatusText = $"Imported {Results.Count:N0} folders from {Path.GetFileName(file)}.";
+            ScanSummary = $"read from {Path.GetFileName(file)}";
 
             SelectFirstMatchedFolder();
         }
@@ -816,6 +817,7 @@ public sealed class MainViewModel : ObservableObject
         Results.Clear();
         ClearSession();
         MarkCommentsSaved();
+        ScanSummary = string.Empty;
         RebuildResultTree();
         UpdateResultSummary();
         ShowFolder(string.Empty);

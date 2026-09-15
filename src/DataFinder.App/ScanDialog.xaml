@@ -4,7 +4,7 @@
         Title="Scan drives"
         Width="560" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
-        ResizeMode="CanResizeWithGrip">
+        ResizeMode="NoResize">
 
   <Window.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
