@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows.Input;
 using DataFinder.App.Infrastructure;
 using DataFinder.Core.Preview.Raw;
 
@@ -14,22 +15,45 @@ public sealed class DecodeDialogViewModel : ObservableObject
     private string _extensionsText = RawFileTypes.DefaultText;
     private string? _extensionsError;
     private IReadOnlyList<string> _extensions = RawFileTypes.Default;
+    private RawSchemaViewModel? _selectedSchema;
 
     public DecodeDialogViewModel()
     {
         ResetExtensionsCommand = new RelayCommand(ResetExtensions, () => ExtensionsText != RawFileTypes.DefaultText);
         RestoreSchematicsCommand = new RelayCommand(RestoreSchematics);
+        AddSchemaCommand = new RelayCommand(() => AddSchema(new RawSchema { Name = "New schematic" }));
+        DuplicateSchemaCommand = new RelayCommand(DuplicateSchema, () => SelectedSchema is not null);
+        RemoveSchemaCommand = new RelayCommand(RemoveSchema, () => SelectedSchema is not null);
 
         ResetSchematics();
         ValidateExtensions();
     }
 
     /// <summary>Every schematic on offer, in the order the list shows them.</summary>
-    public ObservableCollection<RawSchema> Schemas { get; } = new();
+    public ObservableCollection<RawSchemaViewModel> Schemas { get; } = new();
 
     public RelayCommand ResetExtensionsCommand { get; }
 
     public RelayCommand RestoreSchematicsCommand { get; }
+
+    public RelayCommand AddSchemaCommand { get; }
+
+    public RelayCommand DuplicateSchemaCommand { get; }
+
+    public RelayCommand RemoveSchemaCommand { get; }
+
+    /// <summary>The schematic the editor panel is showing.</summary>
+    public RawSchemaViewModel? SelectedSchema
+    {
+        get => _selectedSchema;
+        set
+        {
+            if (SetProperty(ref _selectedSchema, value))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+    }
 
     /// <summary>What the user typed: the file suffixes to read as data files.</summary>
     public string ExtensionsText
@@ -70,7 +94,7 @@ public sealed class DecodeDialogViewModel : ObservableObject
 
     /// <summary>The schematics that can actually be used, in list order.</summary>
     public IReadOnlyList<RawSchema> UsableSchemas =>
-        Schemas.Where(schema => schema.IsValid).ToList();
+        Schemas.Where(schema => schema.IsValid).Select(schema => schema.Schema).ToList();
 
     /// <summary>Puts the suffix list back to what the app starts with.</summary>
     public void ResetExtensions() => ExtensionsText = RawFileTypes.DefaultText;
@@ -78,12 +102,18 @@ public sealed class DecodeDialogViewModel : ObservableObject
     /// <summary>Puts the list of schematics back to the ones the app ships with.</summary>
     public void ResetSchematics()
     {
+        foreach (RawSchemaViewModel schema in Schemas)
+        {
+            schema.Changed -= OnSchemaChanged;
+        }
+
         Schemas.Clear();
         foreach (RawSchema schema in BuiltInRawSchemas.Create())
         {
-            Schemas.Add(schema);
+            Schemas.Add(Track(new RawSchemaViewModel(schema)));
         }
 
+        SelectedSchema = Schemas.FirstOrDefault();
         OnPropertyChanged(nameof(UsableSchemas));
     }
 
@@ -104,6 +134,54 @@ public sealed class DecodeDialogViewModel : ObservableObject
         ResetSchematics();
         RaiseChanged();
     }
+
+    /// <summary>Adds a schematic to the end of the list and opens it in the editor.</summary>
+    private void AddSchema(RawSchema schema)
+    {
+        RawSchemaViewModel added = Track(new RawSchemaViewModel(schema));
+        Schemas.Add(added);
+        SelectedSchema = added;
+        RaiseChanged();
+    }
+
+    private void DuplicateSchema()
+    {
+        if (SelectedSchema is not { } source)
+        {
+            return;
+        }
+
+        RawSchema copy = source.Schema.Clone();
+        copy.Name = $"{copy.Name} (copy)";
+        AddSchema(copy);
+    }
+
+    private void RemoveSchema()
+    {
+        if (SelectedSchema is not { } doomed)
+        {
+            return;
+        }
+
+        int index = Schemas.IndexOf(doomed);
+        doomed.Changed -= OnSchemaChanged;
+        Schemas.Remove(doomed);
+
+        SelectedSchema = Schemas.Count == 0
+            ? null
+            : Schemas[Math.Min(index, Schemas.Count - 1)];
+
+        RaiseChanged();
+    }
+
+    private RawSchemaViewModel Track(RawSchemaViewModel schema)
+    {
+        schema.Changed += OnSchemaChanged;
+        return schema;
+    }
+
+    /// <summary>An edit in the editor panel is a change the open preview should hear about too.</summary>
+    private void OnSchemaChanged() => RaiseChanged();
 
     private void ValidateExtensions()
     {

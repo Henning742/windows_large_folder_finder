@@ -1166,6 +1166,10 @@ public sealed class MainViewModel : ObservableObject
         SelectedPreviewSchema = previous is not null && schemas.Contains(previous)
             ? previous
             : schemas.FirstOrDefault();
+
+        // The same schematic may have been renamed or changed in the dialog, so the pane is told to
+        // read its title again.
+        OnPropertyChanged(nameof(SelectedPreviewSchema));
     }
 
     private void OpenActiveFolder() => ShellService.OpenFolder(ActiveFolderPath);
