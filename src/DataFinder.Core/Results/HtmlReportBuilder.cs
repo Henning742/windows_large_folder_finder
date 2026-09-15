@@ -1,3 +1,4 @@
+using System.Text;
 using DataFinder.Core.Models;
 using DataFinder.Core.Preview;
 using DataFinder.Core.Preview.Raw;
@@ -27,8 +28,16 @@ public sealed class HtmlReportLimits
 /// <summary>How far the report has got, for a progress bar that has something to say.</summary>
 public sealed record HtmlReportProgress(int FoldersDone, int FoldersTotal, string Message);
 
-/// <summary>What came out of a run, so the window can say what it wrote.</summary>
-public sealed record HtmlReportBuildResult(string Html, int Folders, int Pictures, int PicturesLeftOut);
+/// <summary>
+/// What came out of a run, so the window can say what it wrote: the page itself, the picture files
+/// that go beside it, and how many folders and pictures it ended up with.
+/// </summary>
+public sealed record HtmlReportBuildResult(
+    string Html,
+    int Folders,
+    int Pictures,
+    int PicturesLeftOut,
+    IReadOnlyList<HtmlReportFile> Files);
 
 /// <summary>
 /// Puts the report together: walks the folders that matched, finds a few pictures in each of them,
@@ -36,6 +45,9 @@ public sealed record HtmlReportBuildResult(string Html, int Folders, int Picture
 /// </summary>
 public sealed class HtmlReportBuilder
 {
+    /// <summary>Where the pictures go when the caller does not say.</summary>
+    public const string DefaultPictureFolder = "report.files";
+
     private readonly HtmlReportLimits _limits;
     private readonly Random _random;
 
@@ -59,7 +71,8 @@ public sealed class HtmlReportBuilder
         DateTimeOffset generatedAt,
         HtmlReportOptions reportOptions,
         IProgress<HtmlReportProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string pictureFolder = DefaultPictureFolder)
     {
         ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(listFiles);
@@ -70,6 +83,8 @@ public sealed class HtmlReportBuilder
 
         var folders = new List<HtmlReportFolder>(rows.Count);
         var pictures = new PictureBudget(_limits.MaxTotalPictureBytes);
+        var files = new List<HtmlReportFile>();
+        var names = new PictureNames(pictureFolder);
         int done = 0;
 
         // Every row is written out, because a folder that only leads to matches is still the way the
@@ -79,13 +94,14 @@ public sealed class HtmlReportBuilder
             cancellationToken.ThrowIfCancellationRequested();
 
             FolderResult? result = row.Result;
-            IReadOnlyList<HtmlReportImage> images = Array.Empty<HtmlReportImage>();
+            IReadOnlyList<HtmlReportPicture> images = Array.Empty<HtmlReportPicture>();
             string? picturesNote = null;
 
             if (result is not null)
             {
                 progress?.Report(new HtmlReportProgress(done, matches.Count, result.FullPath));
-                (images, picturesNote) = Pictures(row.FullPath, listFiles, decodeSuffixes, schemas, stretch, pictures, cancellationToken);
+                (images, picturesNote) = Pictures(
+                    row.FullPath, listFiles, decodeSuffixes, schemas, stretch, pictures, names, files, cancellationToken);
                 done++;
             }
 
@@ -112,20 +128,23 @@ public sealed class HtmlReportBuilder
             HtmlReport.Build(generatedAt, folders, reportOptions),
             matches.Count,
             pictures.Count,
-            pictures.LeftOut);
+            pictures.LeftOut,
+            files);
     }
 
     /// <summary>
     /// A few pictures of what is inside one folder, picked at random from what is there: the
     /// pictures themselves, and the recordings the decoder can turn into pictures.
     /// </summary>
-    private (IReadOnlyList<HtmlReportImage> Images, string? Note) Pictures(
+    private (IReadOnlyList<HtmlReportPicture> Images, string? Note) Pictures(
         string folderPath,
         Func<string, IReadOnlyList<FileEntry>> listFiles,
         IReadOnlyList<string> decodeSuffixes,
         IReadOnlyList<RawSchema> schemas,
         bool stretch,
         PictureBudget budget,
+        PictureNames names,
+        List<HtmlReportFile> pictureFiles,
         CancellationToken cancellationToken)
     {
         IReadOnlyList<FileEntry> files;
@@ -135,7 +154,7 @@ public sealed class HtmlReportBuilder
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
-            return (Array.Empty<HtmlReportImage>(), $"The folder could not be read: {exception.Message}");
+            return (Array.Empty<HtmlReportPicture>(), $"The folder could not be read: {exception.Message}");
         }
 
         var candidates = new List<FileEntry>();
@@ -174,19 +193,19 @@ public sealed class HtmlReportBuilder
 
         if (examined == 0)
         {
-            return (Array.Empty<HtmlReportImage>(), "There are no files directly inside this folder.");
+            return (Array.Empty<HtmlReportPicture>(), "There are no files directly inside this folder.");
         }
 
         if (candidates.Count == 0)
         {
-            return (Array.Empty<HtmlReportImage>(), sawRecording
+            return (Array.Empty<HtmlReportPicture>(), sawRecording
                 ? "None of the files here could be shown as a picture."
                 : $"Nothing among the {examined:N0} files looked at here could be shown as a picture.");
         }
 
         Shuffle(candidates);
 
-        var images = new List<HtmlReportImage>();
+        var images = new List<HtmlReportPicture>();
         bool ranOutOfRoom = false;
         int refused = 0;
 
@@ -205,20 +224,23 @@ public sealed class HtmlReportBuilder
                 break;
             }
 
-            HtmlReportImage? image = MakePicture(candidate, schemas, stretch);
+            PickedPicture? image = MakePicture(candidate, schemas, stretch);
             if (image is null)
             {
                 refused++;
                 continue;
             }
 
+            // The picture becomes a file of its own beside the page; the page only names it.
+            string source = names.Next(image.Caption, image.MimeType);
+            pictureFiles.Add(new HtmlReportFile(source, image.Bytes));
             budget.Add(image.Bytes.Length);
-            images.Add(image);
+            images.Add(new HtmlReportPicture(image.Caption, source, image.Note));
         }
 
         if (images.Count == 0)
         {
-            return (Array.Empty<HtmlReportImage>(), ranOutOfRoom
+            return (Array.Empty<HtmlReportPicture>(), ranOutOfRoom
                 ? "There was no room left in the report for the pictures of this folder."
                 : "None of the pictures and recordings here could be read.");
         }
@@ -247,7 +269,7 @@ public sealed class HtmlReportBuilder
     /// One picture: a picture file is carried as it is, and a recording is decoded with the first
     /// schematic that manages it - the ticked ones, in the order the dialog lists them.
     /// </summary>
-    private HtmlReportImage? MakePicture(
+    private PickedPicture? MakePicture(
         FileEntry file,
         IReadOnlyList<RawSchema> schemas,
         bool stretch)
@@ -262,7 +284,7 @@ public sealed class HtmlReportBuilder
             byte[]? bytes = ReadAllBytes(file.FullPath, _limits.MaxPictureBytes);
             return bytes is null
                 ? null
-                : new HtmlReportImage(file.Name, MimeTypeOf(file.Name), bytes, $"{ByteSize.Format(file.SizeBytes)} - shown as it is");
+                : new PickedPicture(file.Name, MimeTypeOf(file.Name), bytes, $"{ByteSize.Format(file.SizeBytes)} - shown as it is");
         }
 
         foreach (RawSchema schema in schemas)
@@ -283,7 +305,7 @@ public sealed class HtmlReportBuilder
                 return null;
             }
 
-            return new HtmlReportImage(
+            return new PickedPicture(
                 file.Name,
                 "image/png",
                 png,
@@ -322,6 +344,81 @@ public sealed class HtmlReportBuilder
         ".ico" => "image/x-icon",
         ".wdp" or ".jxr" => "image/vnd.ms-photo",
         _ => "image/png",
+    };
+
+    /// <summary>The suffix a picture file is written with, from the type the browser is told.</summary>
+    private static string SuffixOf(string mimeType) => mimeType switch
+    {
+        "image/jpeg" => ".jpg",
+        "image/gif" => ".gif",
+        "image/bmp" => ".bmp",
+        "image/webp" => ".webp",
+        "image/tiff" => ".tiff",
+        "image/x-icon" => ".ico",
+        "image/vnd.ms-photo" => ".wdp",
+        _ => ".png",
+    };
+
+    /// <summary>A picture that has been read off the disk, before it is given a name beside the page.</summary>
+    private sealed record PickedPicture(string Caption, string MimeType, byte[] Bytes, string Note);
+
+    /// <summary>
+    /// Hands out the names the pictures are written under. The number in front keeps two pictures of
+    /// the same name apart, so one folder cannot overwrite what another folder put there.
+    /// </summary>
+    private sealed class PictureNames
+    {
+        private readonly string _folder;
+        private int _count;
+
+        public PictureNames(string folder) => _folder = SafeFolder(folder);
+
+        public string Next(string caption, string mimeType)
+        {
+            _count++;
+            return $"{_folder}/{_count:D4}-{SafeName(caption)}{SuffixOf(mimeType)}";
+        }
+    }
+
+    /// <summary>
+    /// A folder name a page can link to without the browser taking part of it for a query or a
+    /// fragment. Letters from any language are left alone - only what breaks a path or a URL is not.
+    /// </summary>
+    private static string SafeFolder(string folder)
+    {
+        string trimmed = (folder ?? string.Empty).Trim().Trim('/', '\\', '.');
+        return trimmed.Length == 0 ? DefaultPictureFolder : MakeSafe(trimmed);
+    }
+
+    private static string SafeName(string caption)
+    {
+        // The suffix comes from the type the browser is told, so a name that already carries one is
+        // not left with two of them.
+        string name = MakeSafe(Path.GetFileNameWithoutExtension(caption ?? string.Empty)).Trim('_', ' ');
+        if (name.Length == 0)
+        {
+            name = "picture";
+        }
+
+        return name.Length <= 40 ? name : name[..40];
+    }
+
+    /// <summary>Replaces the characters that would turn a file name into something else once linked to.</summary>
+    private static string MakeSafe(string text)
+    {
+        var safe = new StringBuilder(text.Length);
+
+        foreach (char character in text)
+        {
+            safe.Append(char.IsControl(character) || UnsafeNameCharacters.Contains(character) ? '_' : character);
+        }
+
+        return safe.ToString();
+    }
+
+    private static readonly HashSet<char> UnsafeNameCharacters = new()
+    {
+        '<', '>', ':', '"', '/', '\\', '|', '?', '*', '#', '%',
     };
 
     private void Shuffle(List<FileEntry> files)

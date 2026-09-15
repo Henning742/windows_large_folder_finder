@@ -34,7 +34,12 @@ public sealed class HtmlReportBuilderTests : IDisposable
         Assert.Contains("frame0001.dat", result.Html, StringComparison.Ordinal);
         Assert.Contains("decoded with 16 bit grayscale 8 x 4, 8 x 4", result.Html, StringComparison.Ordinal);
         Assert.DoesNotContain("readme.txt", result.Html, StringComparison.Ordinal);
-        Assert.Contains("src=\"data:image/png;base64,", result.Html, StringComparison.Ordinal);
+
+        // Each picture becomes a file beside the page, and the page only names it.
+        Assert.Equal(2, result.Files.Count);
+        Assert.All(result.Files, file => Assert.StartsWith("report.files/", file.RelativePath));
+        Assert.All(result.Files, file => Assert.Contains($"src=\"{file.RelativePath}\"", result.Html, StringComparison.Ordinal));
+        Assert.DoesNotContain("base64", result.Html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -49,8 +54,27 @@ public sealed class HtmlReportBuilderTests : IDisposable
         HtmlReportBuildResult result = Build(new[] { set1 }, limits: new HtmlReportLimits { PicturesPerFolder = 3 });
 
         Assert.Equal(3, result.Pictures);
-        Assert.Equal(3, Count(result.Html, "src=\"data:image/png;base64,"));
+        Assert.Equal(3, result.Files.Count);
+        Assert.Equal(3, Count(result.Html, "<img "));
         Assert.Contains("Showing 3 of the 20 pictures and recordings here, picked at random.", result.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamesThePictureFilesAfterTheFolderTheCallerAskedFor()
+    {
+        string set1 = Folder("set1");
+        WritePicture(Path.Combine(set1, "shot.png"), 8, 8);
+        WritePicture(Path.Combine(set1, "another.png"), 8, 8);
+
+        HtmlReportBuildResult result = Build(new[] { set1 }, pictureFolder: "My report.files");
+
+        Assert.Equal(2, result.Files.Count);
+        Assert.All(result.Files, file => Assert.StartsWith("My report.files/", file.RelativePath));
+        Assert.All(result.Files, file => Assert.EndsWith(".png", file.RelativePath));
+
+        // The number in front is what keeps two folders' pictures of the same name apart.
+        Assert.Equal(result.Files.Count, result.Files.Select(file => file.RelativePath).Distinct().Count());
+        Assert.Equal(result.Files.Count, result.Files.Select(file => file.RelativePath.Split('/')[^1][..4]).Distinct().Count());
     }
 
     [Fact]
@@ -112,7 +136,7 @@ public sealed class HtmlReportBuilderTests : IDisposable
 
         // The temporary folder is under /tmp, so its parents are rows without a match of their own.
         Assert.Contains("<span class=\"count\">1 below</span>", result.Html, StringComparison.Ordinal);
-        Assert.Contains("class=\"parent\"", result.Html, StringComparison.Ordinal);
+        Assert.Contains("class=\"row parent\"", result.Html, StringComparison.Ordinal);
         Assert.Contains("<section class=\"folder\" id=\"f1\">", result.Html, StringComparison.Ordinal);
     }
 
@@ -147,7 +171,8 @@ public sealed class HtmlReportBuilderTests : IDisposable
         IReadOnlyList<string> folders,
         HtmlReportLimits? limits = null,
         IProgress<HtmlReportProgress>? progress = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        string pictureFolder = HtmlReportBuilder.DefaultPictureFolder)
     {
         IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(folders.Select(path => new FolderResult
         {
@@ -170,7 +195,8 @@ public sealed class HtmlReportBuilderTests : IDisposable
             Written,
             new HtmlReportOptions { Title = "Folders found" },
             progress,
-            cancellation);
+            cancellation,
+            pictureFolder);
     }
 
     private string Folder(string name)

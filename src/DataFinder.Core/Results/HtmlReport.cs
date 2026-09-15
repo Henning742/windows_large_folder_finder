@@ -5,10 +5,17 @@ using DataFinder.Core.Util;
 namespace DataFinder.Core.Results;
 
 /// <summary>
-/// One picture to put in the report, already in the bytes a browser can show. The picture carries
-/// its own caption so the report does not have to know how it was made.
+/// One picture to show in the report. The bytes are written next to the page as a file of their own
+/// rather than carried inside it, so a report over hundreds of folders stays small enough to open.
+/// The picture carries its own caption so the page does not have to know how it was made.
 /// </summary>
-public sealed record HtmlReportImage(string Caption, string MimeType, byte[] Bytes, string? Note = null);
+public sealed record HtmlReportPicture(string Caption, string Source, string? Note = null);
+
+/// <summary>
+/// One picture file the page needs beside it: where it sits relative to the page, and what to write
+/// there. The path is always written with forward slashes, which is what the page links to.
+/// </summary>
+public sealed record HtmlReportFile(string RelativePath, byte[] Bytes);
 
 /// <summary>
 /// One row of the report: a folder that matched the rules, or a folder on the way to one. The list
@@ -49,8 +56,8 @@ public sealed class HtmlReportFolder
 
     public bool Exists { get; init; } = true;
 
-    /// <summary>A few pictures of what is inside the folder.</summary>
-    public IReadOnlyList<HtmlReportImage> Images { get; init; } = Array.Empty<HtmlReportImage>();
+    /// <summary>A few pictures of what is inside the folder, as files pointing at the page's folder.</summary>
+    public IReadOnlyList<HtmlReportPicture> Images { get; init; } = Array.Empty<HtmlReportPicture>();
 
     /// <summary>What there is to say about the pictures - that none could be made, or that some were left out.</summary>
     public string? PicturesNote { get; init; }
@@ -111,13 +118,23 @@ public static class HtmlReport
         return page.ToString();
     }
 
-    /// <summary>Writes the report to a file, as UTF-8 with a byte order mark so any browser reads it right.</summary>
+    /// <summary>
+    /// Writes the report and its pictures to a file, as UTF-8 with a byte order mark so any browser
+    /// reads it right. The pictures go into the folder the page points at, which is created if it is
+    /// not there yet.
+    /// </summary>
     public static void Save(
         string path,
         DateTimeOffset generatedAt,
         IReadOnlyList<HtmlReportFolder> folders,
-        HtmlReportOptions? options = null) =>
+        HtmlReportOptions? options = null,
+        IReadOnlyList<HtmlReportFile>? pictures = null)
+    {
+        // The pictures go first: a page that points at files which were never written is worse than
+        // no page at all.
+        WritePictures(path, pictures);
         File.WriteAllText(path, Build(generatedAt, folders, options), new UTF8Encoding(true));
+    }
 
     /// <summary>
     /// Writes a page that has already been built. Reports are written as UTF-8 with a byte order
@@ -125,6 +142,34 @@ public static class HtmlReport
     /// </summary>
     public static void SaveText(string path, string html) =>
         File.WriteAllText(path, html, new UTF8Encoding(true));
+
+    /// <summary>Writes the picture files the page points at, in the folder under the page.</summary>
+    public static void WritePictures(string pagePath, IReadOnlyList<HtmlReportFile>? pictures)
+    {
+        if (pictures is null || pictures.Count == 0)
+        {
+            return;
+        }
+
+        string? folder = Path.GetDirectoryName(Path.GetFullPath(pagePath));
+        if (string.IsNullOrEmpty(folder))
+        {
+            return;
+        }
+
+        foreach (HtmlReportFile picture in pictures)
+        {
+            string target = Path.Combine(folder, picture.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            string? directory = Path.GetDirectoryName(target);
+
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllBytes(target, picture.Bytes);
+        }
+    }
 
     private static void WriteHeader(
         StringBuilder page,
@@ -232,48 +277,63 @@ public static class HtmlReport
             HtmlReportFolder folder = item.Folder;
             bool branch = item.Children.Count > 0;
 
-            page.Append("<li>");
-
-            // A branch of the tree folds away on its own, so a list of hundreds of folders can be
-            // walked a level at a time.
-            if (branch)
-            {
-                page.Append("<details open><summary>");
-            }
-
-            page.Append("<a href=\"#f").Append(item.Section).Append('"');
-            if (!folder.IsMatch)
-            {
-                page.Append(" class=\"parent\"");
-            }
-
-            page.Append(" title=\"").Append(Escape(folder.FullPath)).Append("\">");
-            page.Append("<span class=\"name\">").Append(Escape(folder.Name)).Append("</span>");
-            page.Append("<span class=\"size\">")
-                .Append(folder.Exists ? ByteSize.Format(folder.SizeBytes) : "not found")
-                .Append("</span>");
-
-            if (!folder.IsMatch)
-            {
-                page.Append("<span class=\"count\">")
-                    .Append(folder.MatchesBelow == 1 ? "1 below" : $"{folder.MatchesBelow:N0} below")
-                    .Append("</span>");
-            }
-
-            page.Append("</a>");
+            // Every row gives its first column to the twisty, whether it folds or not, so names and
+            // sizes line up down the whole list instead of stepping sideways at every branch.
+            page.AppendLine("<li>");
 
             if (branch)
             {
-                page.Append("</summary>");
+                // A branch folds away on its own, so a list of hundreds of folders can be walked a
+                // level at a time.
+                page.AppendLine("<details open>");
+                page.AppendLine("<summary><span class=\"twisty\" aria-hidden=\"true\"></span>");
+                WriteRow(page, item);
+                page.AppendLine("</summary>");
                 WriteList(page, item.Children, depth + 1);
-                page.AppendLine("</details></li>");
-                continue;
+                page.AppendLine("</details>");
+            }
+            else
+            {
+                page.AppendLine("<div class=\"leaf\"><span class=\"twisty\" aria-hidden=\"true\"></span>");
+                WriteRow(page, item);
+                page.AppendLine("</div>");
             }
 
             page.AppendLine("</li>");
         }
 
         page.AppendLine("</ul>");
+    }
+
+    /// <summary>
+    /// The part of a row that is clicked: the folder's own name, its size, and - for a folder that
+    /// is only on the way to matches - how many matches sit below it.
+    /// </summary>
+    private static void WriteRow(StringBuilder page, TreeItem item)
+    {
+        HtmlReportFolder folder = item.Folder;
+
+        page.Append("<a class=\"row");
+        if (!folder.IsMatch)
+        {
+            page.Append(" parent");
+        }
+
+        page.Append("\" href=\"#f").Append(item.Section).Append('"');
+        page.Append(" title=\"").Append(Escape(folder.FullPath)).Append("\">");
+        page.Append("<span class=\"name\">").Append(Escape(folder.Name)).Append("</span>");
+        page.Append("<span class=\"size\">")
+            .Append(folder.Exists ? ByteSize.Format(folder.SizeBytes) : "not found")
+            .Append("</span>");
+
+        if (!folder.IsMatch)
+        {
+            page.Append("<span class=\"count\">")
+                .Append(folder.MatchesBelow == 1 ? "1 below" : $"{folder.MatchesBelow:N0} below")
+                .Append("</span>");
+        }
+
+        page.AppendLine("</a>");
     }
 
     private static void WriteFolders(StringBuilder page, IReadOnlyList<HtmlReportFolder> folders)
@@ -291,7 +351,7 @@ public static class HtmlReport
             section++;
             page.Append("<section class=\"folder\" id=\"f").Append(section).AppendLine("\">");
             page.AppendLine("<details open>");
-            page.AppendLine("<summary>");
+            page.AppendLine("<summary><span class=\"twisty\" aria-hidden=\"true\"></span>");
             page.Append("<span class=\"name\">").Append(Escape(folder.FullPath)).Append("</span>");
             page.Append("<span class=\"size\">");
             page.Append(folder.Exists ? ByteSize.Format(folder.SizeBytes) : "not found");
@@ -338,13 +398,11 @@ public static class HtmlReport
 
         page.AppendLine("<div class=\"thumbs\">");
 
-        foreach (HtmlReportImage image in folder.Images)
+        foreach (HtmlReportPicture image in folder.Images)
         {
             page.AppendLine("<figure>");
-            page.Append("<img alt=\"").Append(Escape(image.Caption)).Append("\" src=\"data:")
-                .Append(Escape(image.MimeType)).Append(";base64,")
-                .Append(Convert.ToBase64String(image.Bytes))
-                .AppendLine("\">");
+            page.Append("<img alt=\"").Append(Escape(image.Caption)).Append("\" loading=\"lazy\" decoding=\"async\" src=\"")
+                .Append(Escape(image.Source)).AppendLine("\">");
             page.Append("<figcaption><span class=\"file\">").Append(Escape(image.Caption)).Append("</span>");
 
             if (!string.IsNullOrWhiteSpace(image.Note))
@@ -443,20 +501,43 @@ public static class HtmlReport
           nav { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow: auto;
                 background: #ffffff; border: 1px solid #dcdfe4; border-radius: 6px; padding: 10px 12px; }
           nav h2 { margin: 0 0 8px; font-size: 15px; }
-          ul.tree { list-style: none; margin: 0; padding-left: 14px; }
-          nav ul.tree { padding-left: 0; }
+
+          /* The contents tree. Each row is the twisty in a column of its own and then the row
+             itself, which in turn holds the name, the size and the "N below" note. Names, sizes and
+             notes therefore line up all the way down, and one more level indents by one twisty. */
+          ul.tree { list-style: none; margin: 0; padding: 0; }
+          ul.tree ul.tree { margin-left: 8px; padding-left: 10px; border-left: 1px solid #e3e6ea; }
           ul.tree li { margin: 1px 0; }
-          ul.tree a { display: flex; gap: 8px; align-items: baseline; padding: 2px 4px; border-radius: 3px;
-                      color: #1b1b1b; text-decoration: none; }
-          ul.tree a:hover { background: #eef4fd; color: #0a66c2; }
-          ul.tree a .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-          ul.tree a.parent .name { color: #4b5563; }
-          ul.tree a .size { color: #0a66c2; font-variant-numeric: tabular-nums; }
-          ul.tree a .count { color: #6b7280; font-size: 11px; }
+          ul.tree summary, ul.tree .leaf { display: grid; grid-template-columns: 16px minmax(0, 1fr);
+                                           align-items: center; }
+          ul.tree summary { list-style: none; cursor: pointer; }
+          ul.tree summary::-webkit-details-marker { display: none; }
+          /* The last column keeps its width whether a row has a note there or not, so the sizes line
+             up down the list instead of stepping sideways wherever a folder has no matches below. */
+          ul.tree .row { display: grid; grid-template-columns: minmax(0, 1fr) auto 76px; column-gap: 8px;
+                         align-items: baseline; padding: 3px 6px; border-radius: 3px; color: #1b1b1b;
+                         text-decoration: none; }
+          ul.tree .row:hover { background: #eef4fd; }
+          ul.tree .row.current { background: #e6f0ff; box-shadow: inset 2px 0 0 #0a66c2; }
+          ul.tree .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          ul.tree .row.parent .name { color: #4b5563; }
+          ul.tree .row .size { color: #0a66c2; font-variant-numeric: tabular-nums; }
+          ul.tree .row .count { color: #6b7280; font-size: 11px; white-space: nowrap; text-align: right; }
+
+          /* The twisty fills the first column of a row whether the row folds or not, so a folder
+             without children keeps its name in the same place as one with children. */
+          .twisty { width: 16px; height: 16px; display: inline-flex; align-items: center;
+                    justify-content: center; color: #6b7280; font-size: 9px; line-height: 1;
+                    user-select: none; }
+          details > summary .twisty::before { content: "\25B6"; }
+          details[open] > summary .twisty::before { content: "\25BC"; }
+
           main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
           section.folder { background: #ffffff; border: 1px solid #dcdfe4; border-radius: 6px; }
-          section.folder details > summary { cursor: pointer; padding: 10px 14px; display: flex; gap: 12px;
-                                             justify-content: space-between; align-items: baseline; }
+          section.folder details > summary { cursor: pointer; padding: 10px 14px; display: grid;
+                                             grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 10px;
+                                             align-items: baseline; list-style: none; }
+          section.folder details > summary::-webkit-details-marker { display: none; }
           section.folder summary .name { font-weight: 600; word-break: break-all; }
           section.folder summary .size { color: #0a66c2; font-variant-numeric: tabular-nums; white-space: nowrap; }
           section.folder .counts, section.folder .comment, section.folder .empty,
@@ -482,6 +563,7 @@ public static class HtmlReport
           (function () {
             var sections = Array.prototype.slice.call(
               document.querySelectorAll('section.folder details, nav details'));
+            var rows = Array.prototype.slice.call(document.querySelectorAll('ul.tree a.row'));
 
             document.getElementById('expandAll').addEventListener('click', function () {
               sections.forEach(function (details) { details.open = true; });
@@ -491,18 +573,36 @@ public static class HtmlReport
               sections.forEach(function (details) { details.open = false; });
             });
 
+            // Marks the row of the folder being looked at, so a long list still says where the reader is.
+            function markCurrent() {
+              var id = location.hash.slice(1);
+              rows.forEach(function (row) {
+                row.classList.toggle('current', id.length > 0 && row.getAttribute('href') === '#' + id);
+              });
+            }
+
             function openTarget() {
               var id = location.hash.slice(1);
               if (!id) { return; }
               var section = document.getElementById(id);
               if (!section) { return; }
-              var details = section.querySelector('details');
-              if (details) { details.open = true; }
+
+              // Every branch on the way to the row has to be open before it can be scrolled to.
+              rows.forEach(function (row) {
+                if (row.getAttribute('href') !== '#' + id) { return; }
+                var details = row.parentElement;
+                while (details) {
+                  if (details.tagName === 'DETAILS') { details.open = true; }
+                  details = details.parentElement;
+                }
+              });
+
               section.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
 
-            window.addEventListener('hashchange', openTarget);
+            window.addEventListener('hashchange', function () { openTarget(); markCurrent(); });
             openTarget();
+            markCurrent();
           })();
         </script>
         """;

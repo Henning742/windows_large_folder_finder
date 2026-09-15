@@ -980,6 +980,10 @@ public sealed class MainViewModel : ObservableObject
             };
 
             var builder = new HtmlReportBuilder();
+
+            // The pictures are written into a folder beside the page rather than into the page, so a
+            // report over hundreds of folders stays small enough for a browser to open.
+            string pictureFolder = Path.GetFileNameWithoutExtension(file) + ".files";
             HtmlReportBuildResult result = await Task.Run(
                 () => builder.Build(
                     tree,
@@ -990,13 +994,17 @@ public sealed class MainViewModel : ObservableObject
                     DateTimeOffset.Now,
                     options,
                     progress,
-                    token),
+                    token,
+                    pictureFolder),
                 token);
 
+            HtmlReport.WritePictures(file, result.Files);
             HtmlReport.SaveText(file, result.Html);
 
-            StatusText =
-                $"Wrote {result.Folders:N0} folders and {result.Pictures:N0} pictures to {Path.GetFileName(file)}.";
+            StatusText = result.Pictures == 0
+                ? $"Wrote {result.Folders:N0} folders to {Path.GetFileName(file)}."
+                : $"Wrote {result.Folders:N0} folders to {Path.GetFileName(file)}, " +
+                  $"with {result.Pictures:N0} pictures in the {pictureFolder} folder beside it.";
         }
         catch (OperationCanceledException)
         {

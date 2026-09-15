@@ -45,8 +45,8 @@ daemon, no dependencies to install.
 7. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
    records the volumes, the rules and how the scan went. The notes are written to the CSV's
    comment column and the marker goes away. **Import** reads a report back, notes included.
-8. **Web page...** writes the whole list out as one stand-alone HTML file with a few thumbnails of
-   what is inside each folder - see *The web page*.
+8. **Web page...** writes the whole list out as one HTML file with a few thumbnails of what is
+   inside each folder, and the thumbnails themselves as files beside it - see *The web page*.
 
 The status bar keeps a note of which drives and which rules the results on screen came from.
 
@@ -171,10 +171,16 @@ readable; they simply have no notes.
 
 ## The web page
 
-**Web page...** writes everything on screen into one `.html` file that stands on its own: no folder
-of pictures next to it, no internet, no program needed to open it. It is for the moment the list
-has to go to somebody else - or to a later version of yourself - and the question is still the one
-the app answers: *which of these folders is worth a look inside?*
+**Web page...** writes everything on screen into one `.html` file, with the thumbnails in a folder
+beside it: no internet and no program needed to open it. It is for the moment the list has to go to
+somebody else - or to a later version of yourself - and the question is still the one the app
+answers: *which of these folders is worth a look inside?*
+
+The page is small, because the pictures are not carried inside it. Every thumbnail is written as a
+file of its own in a `<page name>.files` folder next to the page, and the page points at it, so a
+report over hundreds of folders opens as quickly as a report over three. Copy the page and that
+folder together to send the report on; opening the page on its own still shows every folder, size
+and note, with the places for the pictures left empty.
 
 The page is a tree of every row on the left and a section per folder that matched on the right:
 
@@ -205,9 +211,9 @@ A run is bounded, so that a list of hundreds of folders ends and the file stays 
 
 Whatever a bound leaves out is said under the folder. The rest costs almost nothing: the folders of
 a scan are read from the index the app already has in memory, so only imported lists make it walk
-the disk again. Twelve folders with five pictures each come out as about 90 KB of HTML in well
-under a second; the progress bar, the estimate and *Cancel* cover a list big enough to take real
-time.
+the disk again. Twelve folders with five pictures each come out as about 20 KB of page and sixty
+files beside it in well under a second; the progress bar, the estimate and *Cancel* cover a list big
+enough to take real time.
 
 The notes travel with the page, but writing one does not count as exporting them: the *not exported
 yet* marker stays up until the CSV is written.
@@ -305,9 +311,9 @@ Two details are worth knowing, because they decide what shows up:
 - Decoding is meant for looking, not for converting: one frame at a time, no files written, and a
   schematic whose frame works out to more than 256 MB is refused rather than read. Showing ten
   schematics at once costs about a fifth of a second on a 960 x 514 recording.
-- A web page carries its pictures inside itself, so it is as big as its thumbnails are. The bounds
-  in *The web page* are what keeps that in hand; a folder with more in it than a bound allows is
-  marked as such instead of quietly dropping the rest.
+- A web page carries its pictures as files in a folder beside it, so the page and that folder travel
+  together. The bounds in *The web page* are what keeps a run in hand; a folder with more in it than
+  a bound allows is marked as such instead of quietly dropping the rest.
 
 ## Project layout
 
@@ -316,7 +322,7 @@ Two details are worth knowing, because they decide what shows up:
 | `src/DataFinder.Core` | The scanning engine. Targets plain `net8.0` with no Windows-only code, so it builds and runs anywhere - including in the Linux CI job. |
 | `src/DataFinder.Core/Ntfs` | Boot sector, data run list decoding, MFT record parsing, the record reader and the folder tree. |
 | `src/DataFinder.Core/Preview/Raw` | The data file decoder: the schematics, the frame reader and the pixel conversions, plus the set of schematics that ships with the app. |
-| `src/DataFinder.Core/Results` | The report formats: the tree the results are drawn as, the CSV that is written with the JSON file next to it, the older text list, and the stand-alone web page with the code that gathers its thumbnails. |
+| `src/DataFinder.Core/Results` | The report formats: the tree the results are drawn as, the CSV that is written with the JSON file next to it, the older text list, and the web page with the code that gathers its thumbnails and writes them beside it. |
 | `src/DataFinder.App` | The WPF windows (`net8.0-windows`) - the main window, the *Scan...* dialog and the *Decode settings* dialog - plus the view models and services. Deliberately thin: it displays what the core produces. |
 | `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder so the parser is tested without a real drive. |
 | `build.yml`, `app.manifest` | The CI workflow and the app manifest (unelevated start, per-monitor DPI, long path aware). |
@@ -338,5 +344,5 @@ the estimate of how much longer a scan will take, and the data file decoder: eve
 stretch (including the one 8 bit data gets when it is asked for, and the crop it is worked out
 from), the header and frame skipping, packed colour, the schematics the app ships with, and the
 list of file suffixes the preview decodes. The web page has its own set: the tree and the sizes it
-rolls up, the escaping, the pictures as parts of the page, and the PNG writer, which is checked by
+rolls up, the escaping, the pictures named as files beside the page, and the PNG writer, which is checked by
 unpacking what it wrote the way a browser would.

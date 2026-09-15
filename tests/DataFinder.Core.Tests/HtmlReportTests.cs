@@ -46,17 +46,19 @@ public sealed class HtmlReportTests
                 Match(@"D:\two\b", "b", 2, 1L * 1024 * 1024 * 1024),
             });
 
-        Assert.Contains("<a href=\"#f1\" class=\"parent\" title=\"D:\\\">", html, StringComparison.Ordinal);
-        Assert.Contains("href=\"#f1\" class=\"parent\" title=\"D:\\one\"", html, StringComparison.Ordinal);
-        Assert.Contains("href=\"#f2\" class=\"parent\" title=\"D:\\two\"", html, StringComparison.Ordinal);
+        Assert.Contains("<a class=\"row parent\" href=\"#f1\" title=\"D:\\\">", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"row parent\" href=\"#f1\" title=\"D:\\one\"", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"row parent\" href=\"#f2\" title=\"D:\\two\"", html, StringComparison.Ordinal);
         Assert.Contains("<section class=\"folder\" id=\"f2\">", html, StringComparison.Ordinal);
 
-        // A folder with folders under it folds away in the contents, like the sections do.
-        Assert.Contains("<details open><summary><a href=\"#f1\"", html, StringComparison.Ordinal);
+        // A folder with folders under it folds away in the contents, like the sections do, and the
+        // twisty takes a column of its own so the name starts where the names above it start.
+        Assert.Contains("<details open>", html, StringComparison.Ordinal);
+        Assert.Contains("<summary><span class=\"twisty\" aria-hidden=\"true\"></span>", html, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void PutsThePicturesInAsPartsOfThePageItself()
+    public void PointsThePicturesAtFilesBesideThePage()
     {
         string html = HtmlReport.Build(
             Written,
@@ -67,12 +69,16 @@ public sealed class HtmlReportTests
                     "set1",
                     0,
                     1024,
-                    images: new[] { new HtmlReportImage("shot.png", "image/png", new byte[] { 1, 2, 3 }, "120 KB, a picture") }),
+                    images: new[] { new HtmlReportPicture("shot.png", "report.files/0001-shot.png", "120 KB, a picture") }),
             });
 
-        Assert.Contains("src=\"data:image/png;base64,AQID\"", html, StringComparison.Ordinal);
+        Assert.Contains("src=\"report.files/0001-shot.png\"", html, StringComparison.Ordinal);
         Assert.Contains("<figcaption><span class=\"file\">shot.png</span>", html, StringComparison.Ordinal);
         Assert.Contains("120 KB, a picture", html, StringComparison.Ordinal);
+
+        // Nothing is carried inside the page: a report over hundreds of folders would be too big.
+        Assert.DoesNotContain("base64", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("src=\"data:", html, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -129,16 +135,69 @@ public sealed class HtmlReportTests
             {
                 Parent("D:\\", "D:\\", 0, 3L * 1024 * 1024 * 1024, matchesBelow: 2),
                 Parent(@"D:\data", "data", 1, 2L * 1024 * 1024 * 1024, matchesBelow: 1),
-                Match(@"D:\data\set1", "set1", 2, 1024, images: new[] { new HtmlReportImage("a.png", "image/png", new byte[] { 9 }) }),
+                Match(@"D:\data\set1", "set1", 2, 1024, images: new[] { new HtmlReportPicture("a.png", "report.files/0001-a.png") }),
                 Match(@"D:\data\set2", "set2", 2, 1024),
                 Parent(@"D:\other", "other", 1, 0, matchesBelow: 0),
             });
 
-        foreach (string tag in new[] { "ul", "li", "nav", "main", "section", "details", "figure", "div", "html", "body" })
+        foreach (string tag in new[] { "ul", "li", "nav", "main", "section", "details", "summary", "figure", "div", "html", "body" })
         {
             int open = Count(html, $"<{tag}");
             int close = Count(html, $"</{tag}>");
             Assert.Equal(open, close);
+        }
+    }
+
+    [Fact]
+    public void IndentsEveryLevelOfTheTreeByOneTwisty()
+    {
+        string html = HtmlReport.Build(
+            Written,
+            new[]
+            {
+                Parent("D:\\", "D:\\", 0, 3L * 1024 * 1024 * 1024, matchesBelow: 1),
+                Parent(@"D:\data", "data", 1, 3L * 1024 * 1024 * 1024, matchesBelow: 1),
+                Match(@"D:\data\set1", "set1", 2, 1024),
+            });
+
+        // One nested list per level, and the stylesheet indents each of them and draws the guide line.
+        Assert.Equal(3, Count(html, "<ul class=\"tree\">"));
+        Assert.Contains("ul.tree ul.tree { margin-left: 8px; padding-left: 10px; border-left: 1px solid #e3e6ea; }", html, StringComparison.Ordinal);
+
+        // A folder without children still gets the twisty column, so its name lines up with the rest.
+        Assert.Contains("<div class=\"leaf\"><span class=\"twisty\" aria-hidden=\"true\"></span>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WritesThePicturesAsFilesBesideThePage()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "datafinder-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, "report.html");
+
+        try
+        {
+            HtmlReport.Save(
+                path,
+                Written,
+                new[]
+                {
+                    Match(
+                        @"D:\data\set1",
+                        "set1",
+                        0,
+                        1024,
+                        images: new[] { new HtmlReportPicture("shot.png", "report.files/0001-shot.png") }),
+                },
+                options: null,
+                pictures: new[] { new HtmlReportFile("report.files/0001-shot.png", new byte[] { 1, 2, 3 }) });
+
+            Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(folder, "report.files", "0001-shot.png")));
+            Assert.Contains("src=\"report.files/0001-shot.png\"", File.ReadAllText(path), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
         }
     }
 
@@ -194,7 +253,7 @@ public sealed class HtmlReportTests
         long size,
         string comment = "",
         bool exists = true,
-        IReadOnlyList<HtmlReportImage>? images = null,
+        IReadOnlyList<HtmlReportPicture>? images = null,
         string? picturesNote = null) => new()
     {
         FullPath = path,
@@ -208,7 +267,7 @@ public sealed class HtmlReportTests
         SubfolderCount = 3,
         Comment = comment,
         Exists = exists,
-        Images = images ?? Array.Empty<HtmlReportImage>(),
+        Images = images ?? Array.Empty<HtmlReportPicture>(),
         PicturesNote = picturesNote,
     };
 }
