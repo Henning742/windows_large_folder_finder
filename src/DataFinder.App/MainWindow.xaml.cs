@@ -25,6 +25,20 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e) => ViewModel.OnClosing();
 
+    /// <summary>
+    /// Opens the setup dialog. It closes with "true" when the user asked for the scan, which is the
+    /// only moment a run starts.
+    /// </summary>
+    private async void ScanButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ScanDialog(ViewModel.ScanSetup) { Owner = this };
+
+        if (dialog.ShowDialog() == true)
+        {
+            await ViewModel.StartScanAsync();
+        }
+    }
+
     private void ContentsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (ViewModel.SelectedContent is null)

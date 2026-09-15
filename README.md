@@ -9,10 +9,12 @@ daemon, no dependencies to install.
 
 ## What it does
 
-1. Tick one or more mounted NTFS volumes in the *Drives to scan* box. *Select all* ticks the lot.
-   The ticks are remembered when you press *Refresh*, and the first run ticks the first drive, so
-   the one-drive case is still a single click.
-2. Press **Scan**. The app reads each volume's master file table in turn and applies two rules:
+1. Press **Scan...**. A dialog opens with everything a run needs: the mounted NTFS volumes as a
+   list of ticks (*Select all* ticks the lot, *Refresh* looks for drives that were plugged in since
+   the app started, and a refresh keeps the ticks that are still there) and the two rules. The
+   dialog keeps what you set, so it is ready the next time it is opened.
+2. Press **Scan** in the dialog. The app reads each ticked volume's master file table in turn and
+   applies two rules:
    - the folder is bigger than *N* MB (200 MB by default), and
    - more than *N* files sit **directly** inside it (200 by default).
    The progress bar fills while it runs, and the line next to it says how much longer the whole
@@ -32,8 +34,7 @@ daemon, no dependencies to install.
    records the volumes, the rules and how the scan went. **Import** reads a report back, notes
    included.
 
-Both rule values are editable in the *Rules* box, and both are re-applied instantly to the
-next scan.
+The status bar keeps a note of which drives and which rules the results on screen came from.
 
 ## Requirements
 
@@ -43,8 +44,9 @@ next scan.
 | To scan a drive | Administrator rights. Windows refuses raw volume reads to unelevated processes. |
 | To build from source | The .NET 8 SDK. |
 
-The app starts unelevated and shows a *Restart as administrator* button when it detects that it
-does not have the rights it needs.
+The app starts unelevated and shows a *Restart as administrator* button in the main window when it
+detects that it does not have the rights it needs. The *Scan...* dialog says the same thing in a
+note, so the reminder is there while the drives are being picked too.
 
 ## Building
 
@@ -188,7 +190,7 @@ Two details are worth knowing, because they decide what shows up:
 | `src/DataFinder.Core` | The scanning engine. Targets plain `net8.0` with no Windows-only code, so it builds and runs anywhere - including in the Linux CI job. |
 | `src/DataFinder.Core/Ntfs` | Boot sector, data run list decoding, MFT record parsing, the record reader and the folder tree. |
 | `src/DataFinder.Core/Results` | The report formats: the CSV that is written, the JSON file next to it, the older text list, and the tree the results are drawn as. |
-| `src/DataFinder.App` | The WPF window (`net8.0-windows`), view models and services. Deliberately thin: it displays what the core produces. |
+| `src/DataFinder.App` | The WPF windows (`net8.0-windows`) - the main window and the *Scan...* dialog - plus the view models and services. Deliberately thin: it displays what the core produces. |
 | `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder so the parser is tested without a real drive. |
 | `build.yml`, `app.manifest` | The CI workflow and the app manifest (unelevated start, per-monitor DPI, long path aware). |
 

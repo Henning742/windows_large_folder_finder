@@ -35,10 +35,7 @@ public sealed class MainViewModel : ObservableObject
     private ScanTimeEstimator? _scanRemaining;
     private System.Diagnostics.Stopwatch? _scanStopwatch;
 
-    private string _minSizeText = "200";
-    private string _minFileCountText = "200";
-    private bool _sizeIncludesSubfolders = true;
-    private string? _validationMessage;
+    private string _scanSummary = string.Empty;
     private string _resultFilter = string.Empty;
     private IReadOnlyList<ResultTreeNode> _resultRoots = Array.Empty<ResultTreeNode>();
     private IReadOnlyList<ResultTreeNode> _visibleResults = Array.Empty<ResultTreeNode>();
@@ -64,12 +61,9 @@ public sealed class MainViewModel : ObservableObject
     public MainViewModel(IDialogService dialogs)
     {
         _dialogs = dialogs;
+        ScanSetup = new ScanDialogViewModel();
         IsElevated = ElevationHelper.IsElevated();
 
-        RefreshVolumesCommand = new RelayCommand(RefreshVolumes, () => !IsScanning);
-        SelectAllDrivesCommand = new RelayCommand(() => SetAllDrivesSelected(true), () => !IsScanning && VolumeChoices.Count > 0);
-        SelectNoDrivesCommand = new RelayCommand(() => SetAllDrivesSelected(false), () => !IsScanning && SelectedDriveCount > 0);
-        ScanCommand = new AsyncRelayCommand(ScanAsync, () => !IsScanning && SelectedDriveCount > 0 && !HasValidationMessage);
         CancelCommand = new RelayCommand(CancelRunningWork, () => IsScanning);
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsScanning);
         ExportCommand = new RelayCommand(ExportResults, () => Results.Count > 0);
@@ -81,19 +75,17 @@ public sealed class MainViewModel : ObservableObject
         CopyPathCommand = new RelayCommand(CopyActivePath, () => ActiveFolderPath.Length > 0);
         NavigateUpCommand = new RelayCommand(NavigateUp, () => CanNavigateUp);
         RelaunchElevatedCommand = new RelayCommand(RelaunchElevated, () => !IsElevated);
-
-        ValidateSettings();
     }
 
-    public ObservableCollection<VolumeChoice> VolumeChoices { get; } = new();
+    /// <summary>
+    /// The drives and rules the *Scan...* dialog edits. It is kept here so the choices survive the
+    /// dialog being closed.
+    /// </summary>
+    public ScanDialogViewModel ScanSetup { get; }
 
     public ObservableCollection<FolderResult> Results { get; } = new();
 
     public ObservableCollection<FileEntry> Contents { get; } = new();
-
-    public RelayCommand SelectAllDrivesCommand { get; }
-
-    public RelayCommand SelectNoDrivesCommand { get; }
 
     /// <summary>The choices of the "select a file on its own" drop down, in the order they are shown.</summary>
     public IReadOnlyList<AutoSelectOption> AutoSelectOptions { get; } = new[]
@@ -103,10 +95,6 @@ public sealed class MainViewModel : ObservableObject
         new AutoSelectOption(AutoSelectMode.RandomFile, "Random file"),
         new AutoSelectOption(AutoSelectMode.None, "Nothing"),
     };
-
-    public RelayCommand RefreshVolumesCommand { get; }
-
-    public AsyncRelayCommand ScanCommand { get; }
 
     public RelayCommand CancelCommand { get; }
 
@@ -129,70 +117,6 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand NavigateUpCommand { get; }
 
     public RelayCommand RelaunchElevatedCommand { get; }
-
-    /// <summary>The drives that are ticked, in the order they are listed.</summary>
-    public IReadOnlyList<VolumeInfo> SelectedVolumes =>
-        VolumeChoices.Where(choice => choice.IsSelected).Select(choice => choice.Volume).ToList();
-
-    public int SelectedDriveCount => VolumeChoices.Count(choice => choice.IsSelected);
-
-    public string DriveSelectionText => SelectedDriveCount switch
-    {
-        0 => "No drive selected",
-        1 => "1 drive selected",
-        _ => $"{SelectedDriveCount} drives selected",
-    };
-
-    public string MinSizeText
-    {
-        get => _minSizeText;
-        set
-        {
-            if (SetProperty(ref _minSizeText, value))
-            {
-                ValidateSettings();
-            }
-        }
-    }
-
-    public string MinFileCountText
-    {
-        get => _minFileCountText;
-        set
-        {
-            if (SetProperty(ref _minFileCountText, value))
-            {
-                ValidateSettings();
-            }
-        }
-    }
-
-    public bool SizeIncludesSubfolders
-    {
-        get => _sizeIncludesSubfolders;
-        set
-        {
-            if (SetProperty(ref _sizeIncludesSubfolders, value))
-            {
-                ValidateSettings();
-            }
-        }
-    }
-
-    public string? ValidationMessage
-    {
-        get => _validationMessage;
-        private set
-        {
-            if (SetProperty(ref _validationMessage, value))
-            {
-                OnPropertyChanged(nameof(HasValidationMessage));
-                CommandManager.InvalidateRequerySuggested();
-            }
-        }
-    }
-
-    public bool HasValidationMessage => !string.IsNullOrEmpty(ValidationMessage);
 
     public string ResultFilter
     {
@@ -393,6 +317,16 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasScanWarning => !string.IsNullOrEmpty(ScanWarning);
 
+    /// <summary>
+    /// The drives and the rules the results below were found with, shown in the status bar. The
+    /// *Scan...* dialog is the only place where they can be changed.
+    /// </summary>
+    public string ScanSummary
+    {
+        get => _scanSummary;
+        private set => SetProperty(ref _scanSummary, value);
+    }
+
     public bool IsElevated
     {
         get => _isElevated;
@@ -400,6 +334,7 @@ public sealed class MainViewModel : ObservableObject
         {
             if (SetProperty(ref _isElevated, value))
             {
+                ScanSetup.IsElevated = value;
                 OnPropertyChanged(nameof(NeedsElevation));
                 CommandManager.InvalidateRequerySuggested();
             }
@@ -410,7 +345,13 @@ public sealed class MainViewModel : ObservableObject
 
     public async Task InitializeAsync()
     {
-        RefreshVolumes();
+        ScanSetup.IsElevated = IsElevated;
+        ScanSetup.RefreshVolumes();
+
+        StatusText = ScanSetup.VolumeChoices.Count == 0
+            ? "No NTFS volume was found. Connect a drive and open Scan..."
+            : "Ready. Press Scan... to choose the drives and the rules.";
+
         await Task.CompletedTask;
     }
 
@@ -447,76 +388,26 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private void RefreshVolumes()
+    /// <summary>
+    /// Starts the run the *Scan...* dialog was set up for. The dialog is already closed by the time
+    /// this is called, so every setting is read once, up front.
+    /// </summary>
+    public async Task StartScanAsync()
     {
-        var previouslySelected = VolumeChoices
-            .Where(choice => choice.IsSelected)
-            .Select(choice => choice.Volume.DriveLetter)
-            .ToHashSet();
-
-        VolumeChoices.Clear();
-
-        var found = new List<VolumeChoice>();
-        foreach (VolumeInfo volume in VolumeEnumerator.GetNtfsVolumes())
-        {
-            // A refresh keeps the ticks that are still there. The first run ticks the first drive.
-            bool selected = previouslySelected.Count > 0
-                ? previouslySelected.Contains(volume.DriveLetter)
-                : found.Count == 0;
-
-            var choice = new VolumeChoice(volume, selected);
-            choice.PropertyChanged += OnVolumeChoiceChanged;
-            found.Add(choice);
-            VolumeChoices.Add(choice);
-        }
-
-        OnDriveSelectionChanged();
-
-        StatusText = VolumeChoices.Count == 0
-            ? "No NTFS volume was found. Connect a drive and press Refresh."
-            : $"{VolumeChoices.Count} NTFS volume(s) found.";
-    }
-
-    private void OnVolumeChoiceChanged(object? sender, PropertyChangedEventArgs args)
-    {
-        if (args.PropertyName == nameof(VolumeChoice.IsSelected))
-        {
-            OnDriveSelectionChanged();
-        }
-    }
-
-    private void OnDriveSelectionChanged()
-    {
-        OnPropertyChanged(nameof(SelectedVolumes));
-        OnPropertyChanged(nameof(SelectedDriveCount));
-        OnPropertyChanged(nameof(DriveSelectionText));
-        CommandManager.InvalidateRequerySuggested();
-    }
-
-    private void SetAllDrivesSelected(bool selected)
-    {
-        foreach (VolumeChoice choice in VolumeChoices)
-        {
-            choice.IsSelected = selected;
-        }
-
-        OnDriveSelectionChanged();
-    }
-
-    private async Task ScanAsync()
-    {
-        IReadOnlyList<VolumeInfo> volumes = SelectedVolumes;
+        IReadOnlyList<VolumeInfo> volumes = ScanSetup.SelectedVolumes;
         if (volumes.Count == 0)
         {
             _dialogs.ShowError("Choose a drive first.");
             return;
         }
 
-        if (!TryBuildSettings(out ScanSettings settings, out string? error))
+        if (!ScanSetup.TryBuildSettings(out ScanSettings settings, out string? error))
         {
             _dialogs.ShowError(error ?? "Check the rule values.", "Rules");
             return;
         }
+
+        ScanSummary = ScanSetup.DescribeSelection();
 
         _scanCancellation = new CancellationTokenSource();
         IsScanning = true;
@@ -1051,16 +942,6 @@ public sealed class MainViewModel : ObservableObject
             _dialogs.ShowError("The app could not restart with administrator rights.", "Restart failed");
         }
     }
-
-    private void ValidateSettings()
-    {
-        ValidationMessage = ScanSettings.TryParse(MinSizeText, MinFileCountText, SizeIncludesSubfolders, out _, out string? error)
-            ? null
-            : error;
-    }
-
-    private bool TryBuildSettings(out ScanSettings settings, out string? error) =>
-        ScanSettings.TryParse(MinSizeText, MinFileCountText, SizeIncludesSubfolders, out settings, out error);
 
     /// <summary>
     /// Rebuilds the tree from the folders that pass the filter. A folder that matches keeps the
