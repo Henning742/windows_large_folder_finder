@@ -37,6 +37,7 @@ public sealed class PreviewService
     public Task<IReadOnlyList<DecodeTile>> DecodeAsync(
         string path,
         IReadOnlyList<RawSchema> schemas,
+        bool stretch,
         CancellationToken cancellationToken) =>
         Task.Run<IReadOnlyList<DecodeTile>>(
             () =>
@@ -45,24 +46,29 @@ public sealed class PreviewService
                 foreach (RawSchema schema in schemas)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    tiles.Add(DecodeOne(path, schema));
+                    tiles.Add(DecodeOne(path, schema, stretch));
                 }
 
                 return tiles;
             },
             cancellationToken);
 
-    private static DecodeTile DecodeOne(string path, RawSchema schema)
+    private static DecodeTile DecodeOne(string path, RawSchema schema, bool stretch)
     {
-        RawDecodeResult result = RawFrameReader.Decode(path, schema);
+        RawDecodeResult result = RawFrameReader.Decode(path, schema, stretch);
         if (result.Frame is not { } frame)
         {
             return new DecodeTile(schema.Name, schema.Description, null, result.Error ?? "The frame could not be read.");
         }
 
+        // Only the grey layouts have anything to stretch, so a colour picture says nothing about it.
+        string stretchText = RawDataTypes.CanStretch(schema.DataType)
+            ? stretch ? ", stretched to the full range" : ", as it is"
+            : string.Empty;
+
         return new DecodeTile(
             schema.Name,
-            $"{frame.Width} x {frame.Height} - {schema.Description}",
+            $"{frame.Width} x {frame.Height}{stretchText} - {schema.Description}",
             ToImage(frame),
             result.Warning);
     }

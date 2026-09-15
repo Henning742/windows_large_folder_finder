@@ -21,7 +21,6 @@ public sealed class RawSchemaViewModel : ObservableObject
     private string _frameIndexText;
     private string _bordersText;
     private RawDataType _dataType;
-    private bool _normalize;
     private bool _isShown = true;
     private string? _validationMessage;
 
@@ -37,7 +36,6 @@ public sealed class RawSchemaViewModel : ObservableObject
         _frameIndexText = Number(schema.FrameIndex);
         _bordersText = schema.Borders.IsNone ? string.Empty : schema.Borders.ToString();
         _dataType = schema.DataType;
-        _normalize = schema.Normalize;
 
         Refresh();
     }
@@ -164,22 +162,6 @@ public sealed class RawSchemaViewModel : ObservableObject
         {
             if (SetProperty(ref _dataType, value))
             {
-                OnPropertyChanged(nameof(CanNormalize));
-                Refresh();
-            }
-        }
-    }
-
-    /// <summary>True for the layouts that can be stretched to the full 0-255 range.</summary>
-    public bool CanNormalize => RawDataTypes.CanNormalize(_dataType);
-
-    public bool Normalize
-    {
-        get => _normalize;
-        set
-        {
-            if (SetProperty(ref _normalize, value))
-            {
                 Refresh();
             }
         }
@@ -282,7 +264,6 @@ public sealed class RawSchemaViewModel : ObservableObject
 
         _schema.Borders = borders;
         _schema.DataType = _dataType;
-        _schema.Normalize = _normalize;
         return null;
     }
 

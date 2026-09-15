@@ -58,8 +58,21 @@ public static class RawDataTypes
     /// <summary>True for the layouts that hold more than one value per pixel.</summary>
     public static bool IsColour(RawDataType dataType) => dataType is RawDataType.U8Rgb or RawDataType.YuvUyvy;
 
-    /// <summary>True for the layouts whose values can be stretched to the full 0-255 range.</summary>
-    public static bool CanNormalize(RawDataType dataType) => dataType is RawDataType.U16 or RawDataType.U14InU16;
+    /// <summary>
+    /// True for the layouts that come out as grey levels, which are the ones that can be stretched
+    /// to the full range. A colour picture is left alone: stretching it channel by channel would
+    /// change what it looks like rather than how bright it is.
+    /// </summary>
+    public static bool CanStretch(RawDataType dataType) =>
+        dataType is RawDataType.U8 or RawDataType.U16 or RawDataType.U14InU16 or RawDataType.U16U8;
+
+    /// <summary>
+    /// How a layout is shown unless the user says otherwise. 16 bit data is stretched, because the
+    /// values fill only the first percent or two of the range and the picture would be black
+    /// otherwise; 8 bit data is left as it is, because it already uses the whole range.
+    /// </summary>
+    public static bool StretchesByDefault(RawDataType dataType) =>
+        dataType is RawDataType.U16 or RawDataType.U14InU16;
 
     public static string Describe(RawDataType dataType) => dataType switch
     {

@@ -126,9 +126,8 @@
                       SelectedValuePath="DataType" SelectedValue="{Binding DataType}"
                       Margin="0,0,0,4" />
 
-            <CheckBox Content="Stretch the values to the full 0-255 range"
-                      IsChecked="{Binding Normalize}" IsEnabled="{Binding CanNormalize}"
-                      ToolTip="The darkest 2% of the frame go black and the brightest 2% go white. Only 16 bit data can be stretched." />
+            <TextBlock Foreground="#666666" TextWrapping="Wrap" Margin="0,2,0,0"
+                       Text="16 bit frames are stretched to the full range when they are drawn, 8 bit ones are shown as they are. The Stretch tick in the preview pane flips that for the file on screen." />
 
             <TextBlock Text="Crop: rows and columns to throw away" Style="{StaticResource FieldLabel}" Margin="0,6,0,0" />
             <TextBox Text="{Binding BordersText, UpdateSourceTrigger=PropertyChanged}"

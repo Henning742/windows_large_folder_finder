@@ -26,7 +26,6 @@ public static class BuiltInRawSchemas
             Width = 640,
             Height = 512,
             DataType = RawDataType.U16,
-            Normalize = true,
         },
         new RawSchema
         {
@@ -35,7 +34,6 @@ public static class BuiltInRawSchemas
             Width = 644,
             Height = 514,
             DataType = RawDataType.U16,
-            Normalize = true,
             Borders = new RawBorders(1, 1, 4, 0),
         },
         new RawSchema
@@ -46,7 +44,6 @@ public static class BuiltInRawSchemas
             Height = 514,
             HeaderLength = 64,
             DataType = RawDataType.U14InU16,
-            Normalize = true,
         },
         new RawSchema
         {

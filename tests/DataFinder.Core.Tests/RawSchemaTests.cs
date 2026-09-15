@@ -41,6 +41,24 @@ public sealed class RawSchemaTests
         Assert.Equal(first.Count, second.Count);
     }
 
+    [Fact]
+    public void ShipsOneSchematicPerKindOfRecording()
+    {
+        IReadOnlyList<RawSchema> schemas = BuiltInRawSchemas.Create();
+
+        Assert.Equal(6, schemas.Count);
+
+        // Every recording the reference scripts were written for, and no second size of any of them.
+        var shapes = schemas.Select(schema => $"{schema.Name} {schema.Width}x{schema.Height}").ToList();
+        Assert.Equal(shapes.Count, shapes.Distinct().Count());
+
+        Assert.Contains(schemas, schema => schema.DataType == RawDataType.U8);
+        Assert.Contains(schemas, schema => schema.DataType == RawDataType.U16);
+        Assert.Contains(schemas, schema => schema.DataType == RawDataType.U14InU16);
+        Assert.Contains(schemas, schema => schema.DataType == RawDataType.U16U8);
+        Assert.Contains(schemas, schema => schema.DataType == RawDataType.YuvUyvy);
+    }
+
     [Theory]
     [InlineData(0, 512, "width")]
     [InlineData(640, 0, "height")]
@@ -109,7 +127,6 @@ public sealed class RawSchemaTests
             Height = 514,
             HeaderLength = 64,
             DataType = RawDataType.U16U8,
-            Normalize = true,
             Borders = new RawBorders(1, 2, 3, 4),
             SplitColumn = 700,
             FrameIndex = 3,
@@ -124,7 +141,6 @@ public sealed class RawSchemaTests
         Assert.Equal(960, copy.Width);
         Assert.Equal(64, copy.HeaderLength);
         Assert.Equal(RawDataType.U16U8, copy.DataType);
-        Assert.True(copy.Normalize);
         Assert.Equal(700, copy.SplitColumn);
         Assert.Equal(3, copy.FrameIndex);
     }
@@ -151,12 +167,27 @@ public sealed class RawSchemaTests
     }
 
     [Fact]
-    public void OnlySixteenBitLayoutsCanBeStretched()
+    public void OnlyTheGreyLayoutsCanBeStretched()
     {
-        Assert.True(new RawSchema { DataType = RawDataType.U16 }.CanNormalize);
-        Assert.True(new RawSchema { DataType = RawDataType.U14InU16 }.CanNormalize);
-        Assert.False(new RawSchema { DataType = RawDataType.U8 }.CanNormalize);
-        Assert.False(new RawSchema { DataType = RawDataType.YuvUyvy }.CanNormalize);
+        Assert.True(RawDataTypes.CanStretch(RawDataType.U8));
+        Assert.True(RawDataTypes.CanStretch(RawDataType.U16));
+        Assert.True(RawDataTypes.CanStretch(RawDataType.U14InU16));
+        Assert.True(RawDataTypes.CanStretch(RawDataType.U16U8));
+
+        Assert.False(RawDataTypes.CanStretch(RawDataType.U8Rgb));
+        Assert.False(RawDataTypes.CanStretch(RawDataType.YuvUyvy));
+    }
+
+    [Fact]
+    public void SixteenBitDataStartsStretchedAndEightBitDataDoesNot()
+    {
+        Assert.True(RawDataTypes.StretchesByDefault(RawDataType.U16));
+        Assert.True(RawDataTypes.StretchesByDefault(RawDataType.U14InU16));
+
+        Assert.False(RawDataTypes.StretchesByDefault(RawDataType.U8));
+        Assert.False(RawDataTypes.StretchesByDefault(RawDataType.U16U8));
+        Assert.False(RawDataTypes.StretchesByDefault(RawDataType.U8Rgb));
+        Assert.False(RawDataTypes.StretchesByDefault(RawDataType.YuvUyvy));
     }
 
     [Fact]

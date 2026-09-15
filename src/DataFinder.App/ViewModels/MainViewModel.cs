@@ -57,6 +57,8 @@ public sealed class MainViewModel : ObservableObject
     /// that list really changed - and not on every keystroke in the dialog.</summary>
     private IReadOnlyList<string> _appliedSuffixes = RawFileTypes.Default;
     private bool _showAllSchematics;
+    private bool _stretchPreview;
+    private bool _canStretchPreview;
     private bool _isTilePreviewVisible;
     private bool _isImagePreviewVisible;
     private bool _isTextPreviewVisible;
@@ -77,6 +79,7 @@ public sealed class MainViewModel : ObservableObject
         DecodeSetup.Changed += OnDecodeSettingsChanged;
         IsElevated = ElevationHelper.IsElevated();
         RebuildPreviewSchemas();
+        ResetStretchToDefault();
 
         CancelCommand = new RelayCommand(CancelRunningWork, () => IsScanning);
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsScanning);
@@ -238,6 +241,7 @@ public sealed class MainViewModel : ObservableObject
         {
             if (SetProperty(ref _selectedContent, value))
             {
+                ResetStretchToDefault();
                 StartPreviewLoad();
             }
         }
@@ -290,6 +294,7 @@ public sealed class MainViewModel : ObservableObject
 
             if (SelectedContent is { PreviewKind: PreviewKind.Binary })
             {
+                ResetStretchToDefault();
                 StartPreviewLoad();
             }
         }
@@ -314,6 +319,7 @@ public sealed class MainViewModel : ObservableObject
 
             if (SelectedContent is { PreviewKind: PreviewKind.Binary })
             {
+                ResetStretchToDefault();
                 StartPreviewLoad();
             }
         }
@@ -329,6 +335,36 @@ public sealed class MainViewModel : ObservableObject
         1 => "1 schematic",
         var count => $"{count} schematics",
     };
+
+    /// <summary>
+    /// True while the frames on show are stretched to the full range. It is a look rather than a
+    /// setting: it starts at what the schematic's layout calls for - 16 bit data stretched so it
+    /// can be seen at all, 8 bit data as it is - and it goes back to that whenever another file or
+    /// another schematic is picked.
+    /// </summary>
+    public bool StretchPreview
+    {
+        get => _stretchPreview;
+        set
+        {
+            if (!SetProperty(ref _stretchPreview, value))
+            {
+                return;
+            }
+
+            if (SelectedContent is { PreviewKind: PreviewKind.Binary })
+            {
+                StartPreviewLoad();
+            }
+        }
+    }
+
+    /// <summary>False while nothing on show has a grey level to stretch, which is the case for colour.</summary>
+    public bool CanStretchPreview
+    {
+        get => _canStretchPreview;
+        private set => SetProperty(ref _canStretchPreview, value);
+    }
 
     public string PreviewText
     {
@@ -1079,7 +1115,11 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            IReadOnlyList<DecodeTile> tiles = await _previewService.DecodeAsync(item.FullPath, schemas, cancellationToken);
+            IReadOnlyList<DecodeTile> tiles = await _previewService.DecodeAsync(
+                item.FullPath,
+                schemas,
+                StretchPreview,
+                cancellationToken);
             if (cancellationToken.IsCancellationRequested)
             {
                 return;
@@ -1174,6 +1214,7 @@ public sealed class MainViewModel : ObservableObject
     private void OnDecodeSettingsChanged()
     {
         RebuildPreviewSchemas();
+        ResetStretchToDefault();
 
         if (ActiveFolderPath.Length == 0 || !SuffixesChanged())
         {
@@ -1232,6 +1273,26 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>True when the list of decoded file suffixes is not the one the folder was listed with.</summary>
     private bool SuffixesChanged() =>
         !_appliedSuffixes.SequenceEqual(DecodeSetup.Extensions, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Puts the stretch tick back to what the schematics on show call for: on when any of them is a
+    /// 16 bit layout, off when they are all 8 bit. It is called whenever the file or the schematics
+    /// in view change, so the tick always starts from the sensible answer and the user is only
+    /// ever overriding it for the look they are in the middle of.
+    /// </summary>
+    private void ResetStretchToDefault()
+    {
+        IReadOnlyList<RawSchema> schemas = SchemasForPreview();
+
+        CanStretchPreview = schemas.Any(schema => RawDataTypes.CanStretch(schema.DataType));
+
+        bool stretch = schemas.Any(schema => RawDataTypes.StretchesByDefault(schema.DataType));
+        if (_stretchPreview != stretch)
+        {
+            _stretchPreview = stretch;
+            OnPropertyChanged(nameof(StretchPreview));
+        }
+    }
 
     private void OpenActiveFolder() => ShellService.OpenFolder(ActiveFolderPath);
 

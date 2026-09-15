@@ -175,10 +175,19 @@ app has to be told how the numbers are laid out, and that is what a *schematic* 
 | Frame size | How many pixels across and down one frame is, before cropping. |
 | Header | How many bytes sit in front of every frame and are not pixels. |
 | Data type | What the values are: 8 bit grey, 8 bit colour, 16 bit, 14 bits inside 16 bits, a 16 bit frame with a packed 8 bit picture on its right hand side, or packed UYVY colour. |
-| Stretch | For 16 bit data: pin the darkest 2% of the frame to black and the brightest 2% to white, which is what makes the picture visible at all. Untick it and the whole 16 bit range is spread over the greys, which is right when the signal really does fill it. |
 | Crop | Rows and columns to throw away, for the odd edge line some cameras add: `1,1,0,0`. |
 | Split column | Where the packed 8 bit part of a 16 bit frame starts. 0 means the middle. |
 | Frame to show | Which frame of the recording to look at. 0 is the first one. |
+
+Stretching is not one of them, because it is not a property of the recording - it is how the
+picture is *looked at*. The *Stretch* tick in the preview pane pins the darkest 2% of the frame to
+black and the brightest 2% to white, and it starts where it makes sense: **16 bit data starts
+stretched**, because its values fill only the first percent or two of the range and the picture
+would be black otherwise; **8 bit data starts as it is**, because it already uses the whole range.
+Ticking it the other way is a look rather than a setting, so it goes back to the start the moment
+another file or another schematic is picked. When several schematics are on show and they disagree
+- a 16 bit one next to an 8 bit one - the tick starts on if any of them is 16 bit, because that is
+the one that would otherwise be black; the tile captions say which ones were stretched.
 
 **Decode settings...** in the preview pane holds both halves of it: the file suffixes the preview
 will try to decode, and the list of schematics. Suffixes are typed in freely - `.raw .bin` and
@@ -193,14 +202,15 @@ reference scripts were written for:
 
 | Schematic | Layout |
 |---|---|
-| 8 bit grayscale 640 x 512 / 1280 x 720 | One byte per pixel, no header. |
-| 8 bit colour 1920 x 1080 | Three bytes per pixel, red green blue. |
-| 16 bit infrared 644 x 514, cropped | 16 bit grey, stretched, with `1,1,4,0` cropped off. |
-| 16 bit grayscale 640 x 480 / 640 x 512, stretched | The usual headerless 16 bit dump, stretched. |
-| 16 bit grayscale 640 x 512, as it is | The same, with the stretch off. |
+| 8 bit grayscale 640 x 512 | One byte per pixel, no header. |
+| 16 bit grayscale 640 x 512 | The headerless 16 bit dump an ordinary frame grabber writes. |
+| 16 bit infrared 644 x 514, cropped | 16 bit grey with the odd edge lines cropped off: `1,1,4,0`. |
 | 14 bit inside 16 bit 640 x 514 (64 byte header) | 16 bit values that only use their lower 14 bits. |
 | 16 bit + packed 8 bit 960 x 514 (64 byte header) | The wide recording: the 16 bit rows carry a packed 8 bit picture on their right hand side. |
 | Colour 1920 x 540 (UYVY) | Packed colour. |
+
+That is one per kind of recording rather than one per camera, and every layout the decoder knows is
+a *Duplicate* and a drop down away.
 
 Only one frame is read per look - the frame the schematic asks for - and it is read where it sits
 in the file, so a multi gigabyte recording opens as quickly as a small one. The picture is drawn
@@ -210,7 +220,8 @@ Trying the schematics out one at a time meant going back to the dialog for every
 preview pane has *Show every ticked schematic at once*. With it on, the file is read through every
 ticked schematic and the pictures are drawn side by side, each labelled with its name and size. A
 schematic that cannot read the file gets a tile of its own that says why - usually that the file is
-shorter than one frame of that size - so one glance says which schematics fit the recording.
+shorter than one frame of that size - so one glance says which schematics fit the recording. The
+*Stretch* tick applies to every tile at once, and each tile says whether it was stretched.
 
 Two details differ from the reference Python script on purpose. Packed colour is converted with the
 ordinary BT.601 coefficients and the usual red, green, blue order; the script used a sign turned
@@ -266,7 +277,7 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-177 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+182 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
@@ -274,5 +285,6 @@ entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`
 size parser, the CSV and JSON report round trip (quoting, column lookup, the relative path between
 the two files), the tree that the results are drawn as, the choice of file to select on its own,
 the estimate of how much longer a scan will take, and the data file decoder: every layout, the
-stretch, the crop, the header and frame skipping, packed colour, the
-schematics the app ships with, and the list of file suffixes the preview decodes.
+stretch (including the one 8 bit data gets when it is asked for, and the crop it is worked out
+from), the header and frame skipping, packed colour, the schematics the app ships with, and the
+list of file suffixes the preview decodes.

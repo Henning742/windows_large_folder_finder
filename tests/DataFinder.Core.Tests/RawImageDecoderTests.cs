@@ -9,7 +9,7 @@ public sealed class RawImageDecoderTests
     [Fact]
     public void ReadsOneBytePerPixelAsGreyLevels()
     {
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 0, 128, 255, 64 }, Grey(2, 2));
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 0, 128, 255, 64 }, Grey(2, 2), stretch: false);
 
         Assert.True(result.Succeeded);
         RawFrame frame = result.Frame!;
@@ -24,7 +24,7 @@ public sealed class RawImageDecoderTests
         var schema = Grey(3, 3);
         schema.Borders = new RawBorders(0, 1, 1, 0);
 
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, schema);
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, schema, stretch: false);
 
         Assert.Equal(new byte[] { 2, 3, 5, 6 }, result.Frame!.Pixels);
         Assert.Equal(2, result.Frame.Width);
@@ -37,7 +37,7 @@ public sealed class RawImageDecoderTests
         var schema = Grey(2, 1);
         schema.DataType = RawDataType.U16;
 
-        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(1000, 2000), schema);
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(1000, 2000), schema, stretch: false);
 
         // 1000 of 65535 is nearly black, and 2000 is only twice that.
         Assert.Equal(new byte[] { 3, 7 }, result.Frame!.Pixels);
@@ -48,16 +48,53 @@ public sealed class RawImageDecoderTests
     {
         var schema = Grey(10, 1);
         schema.DataType = RawDataType.U16;
-        schema.Normalize = true;
 
         var values = new ushort[10];
         Array.Fill(values, (ushort)1000);
         values[9] = 2000;
 
-        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(values), schema);
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(values), schema, stretch: true);
 
         Assert.Equal(0, result.Frame!.Pixels[0]);
         Assert.Equal(255, result.Frame.Pixels[9]);
+    }
+
+    [Fact]
+    public void StretchesEightBitFramesWhenItIsAskedFor()
+    {
+        var schema = Grey(256, 1);
+        var pixels = new byte[256];
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = (byte)i;
+        }
+
+        RawDecodeResult result = RawImageDecoder.Decode(pixels, schema, stretch: true);
+        byte[] stretched = result.Frame!.Pixels;
+
+        Assert.Equal(0, stretched[0]);
+        Assert.Equal(255, stretched[^1]);
+        Assert.InRange(stretched.Count(pixel => pixel == 0), 5, 9);
+
+        // The bytes that were handed in are the file's, so they are left as they were.
+        Assert.Equal(0, pixels[0]);
+        Assert.Equal(255, pixels[^1]);
+    }
+
+    [Fact]
+    public void StretchesThePackedEightBitPictureWhenItIsAskedFor()
+    {
+        var schema = Grey(8, 1);
+        schema.DataType = RawDataType.U16U8;
+
+        // The left half is the 16 bit part, the right half packs the eight grey levels 0,1,2,3.
+        RawDecodeResult result = RawImageDecoder.Decode(
+            SixteenBit(0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001, 0x0002, 0x0003),
+            schema,
+            stretch: true);
+
+        // The packed bytes are 0,0,1,0,2,0,3,0, which the stretch spreads over the whole range.
+        Assert.Equal(new byte[] { 0, 0, 89, 0, 178, 0, 255, 0 }, result.Frame!.Pixels);
     }
 
     [Fact]
@@ -67,7 +104,7 @@ public sealed class RawImageDecoderTests
         schema.DataType = RawDataType.U14InU16;
 
         // The top two bits of 0xFF03 are ignored, which leaves 0x3F03 of 0x3FFF.
-        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(0xFF03), schema);
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(0xFF03), schema, stretch: false);
 
         Assert.Equal(251, result.Frame!.Pixels[0]);
     }
@@ -80,7 +117,8 @@ public sealed class RawImageDecoderTests
 
         RawDecodeResult result = RawImageDecoder.Decode(
             SixteenBit(0x1111, 0x2222, 0x1234, 0x5678),
-            schema);
+            schema,
+            stretch: false);
 
         // The left half is the 16 bit part and is not shown; the right half is two pixels per value,
         // low byte first.
@@ -97,23 +135,24 @@ public sealed class RawImageDecoderTests
 
         RawDecodeResult result = RawImageDecoder.Decode(
             SixteenBit(0x0000, 0x0000, 0x1001, 0x2002, 0x0000, 0x0000, 0x3003, 0x4004),
-            schema);
+            schema,
+            stretch: false);
 
         Assert.Equal(new byte[] { 0x03, 0x30, 0x04, 0x40 }, result.Frame!.Pixels);
         Assert.Equal(1, result.Frame.Height);
     }
 
     [Fact]
-    public void SaysSoWhenTheStretchIsSetOnALayoutThatIgnoresIt()
+    public void SaysSoWhenTheStretchIsAskedForOnAColourPicture()
     {
         var schema = Grey(2, 1);
-        schema.DataType = RawDataType.U16U8;
-        schema.Normalize = true;
+        schema.DataType = RawDataType.YuvUyvy;
 
-        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(0, 0, 0x0102, 0x0304), schema);
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 128, 200, 128, 50 }, schema, stretch: true);
 
+        Assert.True(result.Succeeded);
         Assert.NotNull(result.Warning);
-        Assert.Contains("16 bit frames", result.Warning!, StringComparison.Ordinal);
+        Assert.Contains("grey frames", result.Warning!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -123,7 +162,7 @@ public sealed class RawImageDecoderTests
         schema.DataType = RawDataType.YuvUyvy;
 
         // UYVY: colour first, then the two grey values. A colour of 128 is no colour at all.
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 128, 200, 128, 50 }, schema);
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 128, 200, 128, 50 }, schema, stretch: false);
 
         byte[] pixels = result.Frame!.Pixels;
         Assert.Equal(RawPixelFormat.Bgra32, result.Frame.Format);
@@ -138,7 +177,7 @@ public sealed class RawImageDecoderTests
         schema.DataType = RawDataType.YuvUyvy;
 
         // A red cast: the colour pair pushes red up and blue down.
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 128, 50, 200, 50 }, schema);
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 128, 50, 200, 50 }, schema, stretch: false);
 
         byte[] pixel = result.Frame!.Pixels[..4];
         Assert.True(pixel[2] > pixel[0], "the red byte should be above the blue byte");
@@ -151,7 +190,10 @@ public sealed class RawImageDecoderTests
         schema.DataType = RawDataType.YuvUyvy;
         schema.Borders = new RawBorders(1, 0, 0, 0);
 
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[] { 128, 200, 128, 50, 128, 60, 128, 70 }, schema);
+        RawDecodeResult result = RawImageDecoder.Decode(
+            new byte[] { 128, 200, 128, 50, 128, 60, 128, 70 },
+            schema,
+            stretch: false);
 
         Assert.True(result.Succeeded);
         Assert.Equal(2, result.Frame!.Width);
@@ -164,7 +206,6 @@ public sealed class RawImageDecoderTests
     {
         var schema = Grey(100, 10);
         schema.DataType = RawDataType.U16;
-        schema.Normalize = true;
 
         // A smooth ramp from 0 to 999, so roughly the first and last twenty samples are the ones
         // the stretch is meant to pin.
@@ -174,7 +215,7 @@ public sealed class RawImageDecoderTests
             values[i] = (ushort)i;
         }
 
-        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(values), schema);
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(values), schema, stretch: true);
         byte[] pixels = result.Frame!.Pixels;
 
         Assert.Equal(0, pixels[0]);
@@ -195,13 +236,31 @@ public sealed class RawImageDecoderTests
     }
 
     [Fact]
+    public void OnlyTheRowsThatAreShownCountTowardsTheStretch()
+    {
+        var schema = Grey(4, 2);
+        schema.DataType = RawDataType.U16;
+        schema.Borders = new RawBorders(1, 0, 0, 0);
+
+        // The row that is cropped away is far brighter than the one that is kept. Were it counted,
+        // the kept row would come out black.
+        RawDecodeResult result = RawImageDecoder.Decode(
+            SixteenBit(60000, 60000, 60000, 60000, 1000, 2000, 3000, 4000),
+            schema,
+            stretch: true);
+
+        byte[] pixels = result.Frame!.Pixels;
+        Assert.Equal(0, pixels[0]);
+        Assert.Equal(255, pixels[^1]);
+    }
+
+    [Fact]
     public void DoesNotDivideByZeroWhenEveryPixelIsTheSame()
     {
         var schema = Grey(4, 1);
         schema.DataType = RawDataType.U16;
-        schema.Normalize = true;
 
-        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(700, 700, 700, 700), schema);
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(700, 700, 700, 700), schema, stretch: true);
 
         Assert.Equal(new byte[] { 0, 0, 0, 0 }, result.Frame!.Pixels);
     }
@@ -209,7 +268,7 @@ public sealed class RawImageDecoderTests
     [Fact]
     public void FailsWithAReasonWhenThereAreNotEnoughBytesForAFrame()
     {
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[3], Grey(2, 2));
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[3], Grey(2, 2), stretch: false);
 
         Assert.False(result.Succeeded);
         Assert.Contains("expects", result.Error!, StringComparison.Ordinal);
@@ -221,7 +280,7 @@ public sealed class RawImageDecoderTests
         var schema = Grey(2, 2);
         schema.Width = 0;
 
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[16], schema);
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[16], schema, stretch: false);
 
         Assert.False(result.Succeeded);
         Assert.Contains("width", result.Error!, StringComparison.OrdinalIgnoreCase);
@@ -233,7 +292,7 @@ public sealed class RawImageDecoderTests
         var schema = Grey(3, 1);
         schema.DataType = RawDataType.YuvUyvy;
 
-        RawDecodeResult result = RawImageDecoder.Decode(new byte[6], schema);
+        RawDecodeResult result = RawImageDecoder.Decode(new byte[6], schema, stretch: false);
 
         Assert.False(result.Succeeded);
         Assert.Contains("even", result.Error!, StringComparison.OrdinalIgnoreCase);

@@ -27,12 +27,6 @@ public sealed class RawSchema
 
     public RawDataType DataType { get; set; } = RawDataType.U8;
 
-    /// <summary>
-    /// Stretch the values so the darkest 2% go black and the brightest 2% go white, which is what
-    /// makes a 16 bit frame visible at all. Only the 16 bit layouts use it.
-    /// </summary>
-    public bool Normalize { get; set; }
-
     /// <summary>Rows and columns to throw away before showing the frame.</summary>
     public RawBorders Borders { get; set; } = RawBorders.None;
 
@@ -54,9 +48,6 @@ public sealed class RawSchema
 
     /// <summary>Bytes from the start of one frame to the start of the next.</summary>
     public int FrameBytes => HeaderLength + PayloadBytes;
-
-    /// <summary>True when the chosen layout does something with <see cref="Normalize"/>.</summary>
-    public bool CanNormalize => RawDataTypes.CanNormalize(DataType);
 
     public string SizeText => $"{Width} x {Height}";
 
@@ -135,7 +126,6 @@ public sealed class RawSchema
         Height = Height,
         HeaderLength = HeaderLength,
         DataType = DataType,
-        Normalize = Normalize,
         Borders = Borders,
         SplitColumn = SplitColumn,
         FrameIndex = FrameIndex,
@@ -153,11 +143,6 @@ public sealed class RawSchema
         if (HeaderLength > 0)
         {
             parts.Add($"{HeaderLength:N0} byte header");
-        }
-
-        if (Normalize && CanNormalize)
-        {
-            parts.Add("stretched to 0-255");
         }
 
         if (DataType == RawDataType.U16U8)

@@ -71,12 +71,15 @@ public static class RawFrameReader
         }
     }
 
-    /// <summary>Reads one frame and decodes it in a single step.</summary>
-    public static RawDecodeResult Decode(string path, RawSchema schema, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Reads one frame and decodes it in a single step. <paramref name="stretch"/> is the choice the
+    /// preview pane offers: see <see cref="RawImageDecoder.Decode"/>.
+    /// </summary>
+    public static RawDecodeResult Decode(string path, RawSchema schema, bool stretch, CancellationToken cancellationToken = default)
     {
         RawReadResult read = Read(path, schema, cancellationToken);
         return read.Bytes is null
             ? RawDecodeResult.Failure(read.Error ?? "The frame could not be read.")
-            : RawImageDecoder.Decode(read.Bytes, schema);
+            : RawImageDecoder.Decode(read.Bytes, schema, stretch);
     }
 }

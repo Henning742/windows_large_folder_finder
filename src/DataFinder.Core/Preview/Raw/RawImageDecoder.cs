@@ -18,8 +18,11 @@ public static class RawImageDecoder
     /// <summary>
     /// Reads one whole frame. <paramref name="frameBytes"/> has to hold the frame's pixels, so it is
     /// either what <see cref="RawFrameReader"/> read or the same bytes from somewhere else.
+    /// <paramref name="stretch"/> pins the darkest 2% of the frame to black and the brightest 2% to
+    /// white - see <see cref="RawDataTypes.StretchesByDefault"/> for what a layout is shown with
+    /// when nobody has an opinion.
     /// </summary>
-    public static RawDecodeResult Decode(byte[] frameBytes, RawSchema schema)
+    public static RawDecodeResult Decode(byte[] frameBytes, RawSchema schema, bool stretch)
     {
         ArgumentNullException.ThrowIfNull(frameBytes);
         ArgumentNullException.ThrowIfNull(schema);
@@ -39,23 +42,28 @@ public static class RawImageDecoder
 
         return schema.DataType switch
         {
-            RawDataType.U8 => DecodeGrayscale8(frameBytes, schema),
-            RawDataType.U8Rgb => DecodeColour8(frameBytes, schema),
-            RawDataType.U16 => DecodeWide(frameBytes, schema, 0xFFFF),
-            RawDataType.U14InU16 => DecodeWide(frameBytes, schema, 0x3FFF),
-            RawDataType.U16U8 => DecodePacked(frameBytes, schema),
-            RawDataType.YuvUyvy => DecodePackedColour(frameBytes, schema),
+            RawDataType.U8 => DecodeGrayscale8(frameBytes, schema, stretch),
+            RawDataType.U8Rgb => DecodeColour8(frameBytes, schema, stretch),
+            RawDataType.U16 => DecodeWide(frameBytes, schema, 0xFFFF, stretch),
+            RawDataType.U14InU16 => DecodeWide(frameBytes, schema, 0x3FFF, stretch),
+            RawDataType.U16U8 => DecodePacked(frameBytes, schema, stretch),
+            RawDataType.YuvUyvy => DecodePackedColour(frameBytes, schema, stretch),
             _ => RawDecodeResult.Failure($"'{schema.Name}' uses a layout this build does not know."),
         };
     }
 
     /// <summary>One byte per pixel: the value is already the grey level.</summary>
-    private static RawDecodeResult DecodeGrayscale8(byte[] bytes, RawSchema schema)
+    private static RawDecodeResult DecodeGrayscale8(byte[] bytes, RawSchema schema, bool stretch)
     {
         var plane = new byte[schema.PayloadBytes];
         Buffer.BlockCopy(bytes, 0, plane, 0, plane.Length);
 
         plane = Crop(plane, schema.Width, schema.Height, 1, schema.Borders, out int width, out int height);
+        if (stretch)
+        {
+            StretchInPlace(plane, plane.Length);
+        }
+
         return RawDecodeResult.Success(new RawFrame
         {
             Width = width,
@@ -66,7 +74,7 @@ public static class RawImageDecoder
     }
 
     /// <summary>Three bytes per pixel, in red, green, blue order.</summary>
-    private static RawDecodeResult DecodeColour8(byte[] bytes, RawSchema schema)
+    private static RawDecodeResult DecodeColour8(byte[] bytes, RawSchema schema, bool stretch)
     {
         var rgb = new byte[schema.PayloadBytes];
         Buffer.BlockCopy(bytes, 0, rgb, 0, rgb.Length);
@@ -80,29 +88,45 @@ public static class RawImageDecoder
                 Format = RawPixelFormat.Bgra32,
                 Pixels = ToBgra(rgb, width * height),
             },
-            IgnoredNormalization(schema));
+            IgnoredStretch(schema, stretch));
     }
 
     /// <summary>
-    /// 16 bit values, or 14 bits sitting in a 16 bit value. Without the stretch the whole value
-    /// range is spread over the grey levels, which is what you want when the signal really does
-    /// fill it; with the stretch the darkest and brightest 2% are pinned to black and white first.
+    /// 16 bit values, or 14 bits sitting in a 16 bit value. Only the pixels that are going to be
+    /// shown are read, so the stretch is worked out from the frame as it comes out of the crop.
     /// </summary>
-    private static RawDecodeResult DecodeWide(byte[] bytes, RawSchema schema, int mask)
+    private static RawDecodeResult DecodeWide(byte[] bytes, RawSchema schema, int mask, bool stretch)
     {
-        int count = schema.Width * schema.Height;
+        int width = schema.Width;
+        (int croppedWidth, int croppedHeight) = schema.Borders.ApplyTo(schema.Width, schema.Height);
+        int count = croppedWidth * croppedHeight;
 
-        // The values are whole numbers, so a histogram says everything the stretch needs to know -
-        // and it costs 256 KB instead of sorting half a million numbers on every decode.
-        var histogram = new int[mask + 1];
-        for (int i = 0; i < count; i++)
+        var values = new ushort[count];
+
+        // The values are whole numbers, so a histogram says everything the stretch needs to know:
+        // 256 KB and one pass, rather than sorting half a million numbers on every decode.
+        var histogram = stretch ? new int[mask + 1] : null;
+
+        for (int row = 0; row < croppedHeight; row++)
         {
-            histogram[BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2, 2)) & mask]++;
+            int sourceRow = (row + schema.Borders.Top) * width;
+
+            for (int column = 0; column < croppedWidth; column++)
+            {
+                int source = (sourceRow + column + schema.Borders.Left) * 2;
+                ushort value = (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(source, 2)) & mask);
+
+                values[(row * croppedWidth) + column] = value;
+                if (histogram is not null)
+                {
+                    histogram[value]++;
+                }
+            }
         }
 
         double low = 0d;
         double high = mask;
-        if (schema.Normalize)
+        if (histogram is not null)
         {
             low = Percentile(histogram, count, LowPercentile);
             high = Percentile(histogram, count, HighPercentile);
@@ -112,16 +136,14 @@ public static class RawImageDecoder
         var plane = new byte[count];
         for (int i = 0; i < count; i++)
         {
-            int value = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2, 2)) & mask;
-            double scaled = span <= 0d ? 0d : (Math.Clamp(value, low, high) - low) / span;
+            double scaled = span <= 0d ? 0d : (Math.Clamp(values[i], low, high) - low) / span;
             plane[i] = (byte)(scaled * 255d);
         }
 
-        plane = Crop(plane, schema.Width, schema.Height, 1, schema.Borders, out int width, out int height);
         return RawDecodeResult.Success(new RawFrame
         {
-            Width = width,
-            Height = height,
+            Width = croppedWidth,
+            Height = croppedHeight,
             Format = RawPixelFormat.Gray8,
             Pixels = plane,
         });
@@ -132,7 +154,7 @@ public static class RawImageDecoder
     /// there holds two pixels, the low byte first. The left hand side is not shown, which is what
     /// the reference script does as well.
     /// </summary>
-    private static RawDecodeResult DecodePacked(byte[] bytes, RawSchema schema)
+    private static RawDecodeResult DecodePacked(byte[] bytes, RawSchema schema, bool stretch)
     {
         int width = schema.Width;
         int height = schema.Height;
@@ -163,6 +185,11 @@ public static class RawImageDecoder
             }
         }
 
+        if (stretch)
+        {
+            StretchInPlace(plane, plane.Length);
+        }
+
         return RawDecodeResult.Success(
             new RawFrame
             {
@@ -171,7 +198,7 @@ public static class RawImageDecoder
                 Format = RawPixelFormat.Gray8,
                 Pixels = plane,
             },
-            IgnoredNormalization(schema));
+            IgnoredStretch(schema, stretch));
     }
 
     /// <summary>
@@ -179,7 +206,7 @@ public static class RawImageDecoder
     /// is disregarded for this layout, the same way the reference script disregards it, and the
     /// window is told so rather than being shown a picture that quietly lost its edge lines.
     /// </summary>
-    private static RawDecodeResult DecodePackedColour(byte[] bytes, RawSchema schema)
+    private static RawDecodeResult DecodePackedColour(byte[] bytes, RawSchema schema, bool stretch)
     {
         if (schema.Width % 2 != 0)
         {
@@ -201,9 +228,17 @@ public static class RawImageDecoder
             WriteRgb(rgb, pixel + 1, y1, u, v);
         }
 
-        string? warning = schema.Borders.IsNone
-            ? null
-            : $"The crop of {schema.Borders} is disregarded for packed colour, just as the reference script does.";
+        string? warning = IgnoredStretch(schema, stretch);
+        if (!schema.Borders.IsNone)
+        {
+            warning = string.Join(
+                " ",
+                new[]
+                {
+                    warning,
+                    $"The crop of {schema.Borders} is disregarded for packed colour, just as the reference script does.",
+                }.Where(part => !string.IsNullOrEmpty(part)));
+        }
 
         return RawDecodeResult.Success(
             new RawFrame
@@ -274,7 +309,7 @@ public static class RawImageDecoder
     /// frame comes out the same shade of grey here as it does there: the value that many percent of
     /// the frame sits at or below, with the two values either side of it mixed in proportion.
     /// </summary>
-    private static double Percentile(int[] histogram, int count, double percent)
+    private static double Percentile(ReadOnlySpan<int> histogram, int count, double percent)
     {
         if (count <= 0)
         {
@@ -301,7 +336,7 @@ public static class RawImageDecoder
     }
 
     /// <summary>The value that many samples into the frame: the smallest value the count reaches.</summary>
-    private static double ValueAt(int[] histogram, int index)
+    private static double ValueAt(ReadOnlySpan<int> histogram, int index)
     {
         int seen = 0;
 
@@ -317,7 +352,7 @@ public static class RawImageDecoder
         return histogram.Length - 1;
     }
 
-    private static double LowestValue(int[] histogram)
+    private static double LowestValue(ReadOnlySpan<int> histogram)
     {
         for (int value = 0; value < histogram.Length; value++)
         {
@@ -331,11 +366,40 @@ public static class RawImageDecoder
     }
 
     /// <summary>
-    /// Says so when the stretch is ticked on a layout that has nothing to stretch, instead of
+    /// Stretches a plane of grey levels in place: the darkest 2% end up black and the brightest 2%
+    /// white, and everything between is spread out over the greys in order.
+    /// </summary>
+    private static void StretchInPlace(byte[] plane, int count)
+    {
+        if (count == 0)
+        {
+            return;
+        }
+
+        Span<int> histogram = stackalloc int[256];
+        foreach (byte value in plane.AsSpan(0, count))
+        {
+            histogram[value]++;
+        }
+
+        double low = Percentile(histogram, count, LowPercentile);
+        double high = Percentile(histogram, count, HighPercentile);
+        double span = high - low;
+
+        for (int i = 0; i < count; i++)
+        {
+            plane[i] = span <= 0d
+                ? (byte)0
+                : (byte)((Math.Clamp(plane[i], low, high) - low) / span * 255d);
+        }
+    }
+
+    /// <summary>
+    /// Says so when the stretch is asked for on a layout that has nothing to stretch, instead of
     /// quietly doing something else.
     /// </summary>
-    private static string? IgnoredNormalization(RawSchema schema) =>
-        schema.Normalize && !schema.CanNormalize
-            ? "Stretching to the full range only applies to 16 bit frames, so it was left out here."
+    private static string? IgnoredStretch(RawSchema schema, bool stretch) =>
+        stretch && !RawDataTypes.CanStretch(schema.DataType)
+            ? "Stretching to the full range only applies to grey frames, and this one is colour, so it was left out here."
             : null;
 }

@@ -80,10 +80,39 @@ public sealed class RawFrameReaderTests : IDisposable
     {
         string file = WriteRecording(header: 0, frames: new[] { new byte[] { 0, 128, 255, 64 } });
 
-        RawDecodeResult result = RawFrameReader.Decode(file, Grey(2, 2, 0));
+        RawDecodeResult result = RawFrameReader.Decode(file, Grey(2, 2, 0), stretch: false);
 
         Assert.True(result.Succeeded);
         Assert.Equal(new byte[] { 0, 128, 255, 64 }, result.Frame!.Pixels);
+    }
+
+    [Fact]
+    public void HandsTheStretchOnToTheDecoder()
+    {
+        string file = WriteRecording(header: 0, frames: new[] { SixteenBit(0x0064, 0x0065, 0x0066, 0x0067) });
+        var schema = new RawSchema { Name = "test", Width = 2, Height = 2, DataType = RawDataType.U16 };
+
+        RawDecodeResult asItIs = RawFrameReader.Decode(file, schema, stretch: false);
+        RawDecodeResult stretched = RawFrameReader.Decode(file, schema, stretch: true);
+
+        // Four values in the same few counts, so nothing of them shows without the stretch.
+        Assert.Equal(new byte[] { 0, 0, 0, 0 }, asItIs.Frame!.Pixels);
+
+        byte[] pixels = stretched.Frame!.Pixels;
+        Assert.Equal(0, pixels[0]);
+        Assert.Equal(255, pixels[^1]);
+        Assert.True(pixels[1] > 0 && pixels[1] < pixels[2], "the two middle values should be spread out");
+    }
+
+    private static byte[] SixteenBit(params ushort[] values)
+    {
+        var bytes = new byte[values.Length * 2];
+        for (int i = 0; i < values.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(i * 2, 2), values[i]);
+        }
+
+        return bytes;
     }
 
     private static RawSchema Grey(int width, int height, int header) => new()
