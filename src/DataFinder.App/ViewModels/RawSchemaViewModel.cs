@@ -23,6 +23,7 @@ public sealed class RawSchemaViewModel : ObservableObject
     private RawDataType _dataType;
     private bool _normalize;
     private bool _removeWhite;
+    private bool _isShown = true;
     private string? _validationMessage;
 
     public RawSchemaViewModel(RawSchema schema)
@@ -51,6 +52,22 @@ public sealed class RawSchemaViewModel : ObservableObject
 
     /// <summary>The layouts the data type drop down offers.</summary>
     public IReadOnlyList<RawDataTypeOption> DataTypes { get; } = RawDataTypeOption.All;
+
+    /// <summary>
+    /// Tick when this schematic should be part of the "show them all at once" view. It is on to
+    /// begin with, so the whole set can be compared without ticking anything first.
+    /// </summary>
+    public bool IsShown
+    {
+        get => _isShown;
+        set
+        {
+            if (SetProperty(ref _isShown, value))
+            {
+                Changed?.Invoke();
+            }
+        }
+    }
 
     public string Name
     {

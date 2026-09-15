@@ -53,6 +53,7 @@ public sealed class MainViewModel : ObservableObject
     private string _previewMessage = "Select a folder on the left to see what is inside.";
     private IReadOnlyList<RawSchema> _previewSchemas = Array.Empty<RawSchema>();
     private RawSchema? _selectedPreviewSchema;
+    private bool _showAllSchematics;
     private bool _isTilePreviewVisible;
     private bool _isImagePreviewVisible;
     private bool _isTextPreviewVisible;
@@ -290,6 +291,41 @@ public sealed class MainViewModel : ObservableObject
             }
         }
     }
+
+    /// <summary>
+    /// True when a data file is read with every ticked schematic at once and the pictures are drawn
+    /// side by side, which saves picking the right one by trial and error.
+    /// </summary>
+    public bool ShowAllSchematics
+    {
+        get => _showAllSchematics;
+        set
+        {
+            if (!SetProperty(ref _showAllSchematics, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(IsSingleSchematicMode));
+            OnPropertyChanged(nameof(AllSchematicsSummary));
+
+            if (SelectedContent is { PreviewKind: PreviewKind.Binary })
+            {
+                StartPreviewLoad();
+            }
+        }
+    }
+
+    /// <summary>True while the drop down of single schematics is the one that decides.</summary>
+    public bool IsSingleSchematicMode => !ShowAllSchematics;
+
+    /// <summary>How many schematics are drawn side by side, shown next to the tick.</summary>
+    public string AllSchematicsSummary => DecodeSetup.ShownSchemas.Count switch
+    {
+        0 => "no schematic is ticked",
+        1 => "1 schematic",
+        var count => $"{count} schematics",
+    };
 
     public string PreviewText
     {
@@ -1030,7 +1066,9 @@ public sealed class MainViewModel : ObservableObject
         IReadOnlyList<RawSchema> schemas = SchemasForPreview();
         if (schemas.Count == 0)
         {
-            SetPreviewState(null, null, "There is no data schematic to read this file with. Open Decode settings to add one.");
+            SetPreviewState(null, null, ShowAllSchematics
+                ? "No data schematic is ticked for showing several at once. Tick some in Decode settings."
+                : "There is no data schematic to read this file with. Open Decode settings to add one.");
             return;
         }
 
@@ -1056,6 +1094,11 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The schematics to read the selected file with, in the order they are drawn.</summary>
     private IReadOnlyList<RawSchema> SchemasForPreview()
     {
+        if (ShowAllSchematics)
+        {
+            return DecodeSetup.ShownSchemas;
+        }
+
         if (SelectedPreviewSchema is { } chosen)
         {
             return new[] { chosen };
@@ -1170,6 +1213,7 @@ public sealed class MainViewModel : ObservableObject
         // The same schematic may have been renamed or changed in the dialog, so the pane is told to
         // read its title again.
         OnPropertyChanged(nameof(SelectedPreviewSchema));
+        OnPropertyChanged(nameof(AllSchematicsSummary));
     }
 
     private void OpenActiveFolder() => ShellService.OpenFolder(ActiveFolderPath);

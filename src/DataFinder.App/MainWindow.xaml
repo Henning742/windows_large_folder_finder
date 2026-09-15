@@ -235,11 +235,18 @@
               <TextBlock DockPanel.Dock="Left" Text="Preview" Style="{StaticResource PaneHeader}" />
               <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="12,0,0,0">
                 <TextBlock Text="Schematic" Style="{StaticResource FieldLabel}" />
-                <ComboBox Width="240" VerticalAlignment="Center"
+                <ComboBox Width="220" VerticalAlignment="Center"
                           ItemsSource="{Binding PreviewSchemas}"
                           DisplayMemberPath="Name"
                           SelectedItem="{Binding SelectedPreviewSchema}"
+                          IsEnabled="{Binding IsSingleSchematicMode}"
                           ToolTip="{Binding SelectedPreviewSchema.Description}" />
+                <CheckBox Content="Show every ticked schematic at once" VerticalAlignment="Center" Margin="12,0,0,0"
+                          IsChecked="{Binding ShowAllSchematics}"
+                          ToolTip="Draw the selected data file through every schematic that is ticked in Decode settings, side by side" />
+                <TextBlock Text="{Binding AllSchematicsSummary}" Foreground="#666666" VerticalAlignment="Center"
+                           Margin="8,0,0,0"
+                           Visibility="{Binding ShowAllSchematics, Converter={StaticResource BoolToVisibility}}" />
               </StackPanel>
             </DockPanel>
 
