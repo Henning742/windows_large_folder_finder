@@ -93,10 +93,15 @@ internal sealed class MftRecordBuilder
         return this;
     }
 
-    /// <summary>Marks this record as an extension of another record, as NTFS does when attributes spill over.</summary>
+    /// <summary>
+    /// Marks this record as an extension of another record, as NTFS does when attributes spill over:
+    /// the record points at its base and its in-use flag is left clear, so nothing counts it as a
+    /// file of its own.
+    /// </summary>
     public MftRecordBuilder AsExtensionOf(uint baseRecordNumber)
     {
         WriteUInt64(0x20, baseRecordNumber);
+        WriteUInt16(0x16, 0x0000);
         return this;
     }
 
@@ -132,6 +137,35 @@ internal sealed class MftRecordBuilder
             WriteUInt64(position + 0x10, recordNumber);
             position += entryLength;
         }
+
+        _attributeOffset += attributeLength;
+        return this;
+    }
+
+    /// <summary>
+    /// Adds an <c>$ATTRIBUTE_LIST</c> that does not fit in the record, so its entries live in the
+    /// attribute's own data runs - the layout of a very fragmented table.
+    /// </summary>
+    public MftRecordBuilder AddNonResidentAttributeListAttribute(long size, byte[] runList)
+    {
+        const int runListOffset = 0x40;
+        int attributeLength = Align8(runListOffset + runList.Length);
+        int start = _attributeOffset;
+
+        WriteUInt32(start + 0x00, AttributeAttributeList);
+        WriteUInt32(start + 0x04, (uint)attributeLength);
+        _buffer[start + 0x08] = 1; // non resident
+        _buffer[start + 0x09] = 0; // unnamed
+        WriteUInt16(start + 0x0A, 0);
+        WriteUInt16(start + 0x0C, 0);
+        WriteUInt16(start + 0x0E, 0);
+        WriteInt64(start + 0x10, 0);        // first VCN
+        WriteInt64(start + 0x18, 0);        // last VCN
+        WriteUInt16(start + 0x20, runListOffset);
+        WriteInt64(start + 0x28, size);     // allocated size
+        WriteInt64(start + 0x30, size);     // real size
+        WriteInt64(start + 0x38, size);     // initialized size
+        runList.CopyTo(_buffer, start + runListOffset);
 
         _attributeOffset += attributeLength;
         return this;

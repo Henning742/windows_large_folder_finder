@@ -18,6 +18,7 @@ public sealed class ScanReport
 
     public TimeSpan Elapsed { get; init; }
 
+    /// <summary>How many records were read. Records that could not be read and were skipped are not counted.</summary>
     public long RecordsRead { get; init; }
 
     /// <summary>How many records the master file table should have held, from its $DATA size.</summary>

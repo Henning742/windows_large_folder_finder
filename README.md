@@ -300,8 +300,18 @@ Two details are worth knowing, because they decide what shows up:
 - A **BitLocker locked** volume cannot be scanned; Windows refuses the read and the app reports it.
 - When an `$ATTRIBUTE_LIST` spreads a file's attributes over several MFT records, the app follows
   the list and merges those records, so split `$DATA` and `$FILE_NAME` attributes are counted in
-  full. The same is done for `$MFT` itself, so a fragmented master file table is read completely.
-  The app only warns if such a list points at records that are missing or damaged.
+  full. The same is done for `$MFT` itself, and going round in passes, because an extension record
+  can only be found once the extent that covers it is known. A list that does not fit in its record
+  - the layout of a very fragmented table - is read through its own data runs like any other
+  attribute. What is left is a warning: a list that points at records which are missing or damaged.
+- **Damage is skipped rather than given up on.** A hole between the runs of the table, or a stretch
+  of it the volume will not read, no longer ends the scan: the reader looks ahead for the first
+  record that does come back and carries on there, so folders on the far side are still found. Each
+  read is also tried more than once, a failed read is asked for in shorter and shorter pieces, and
+  what could not be read is reported - how many records, and whether the runs stopped short or the
+  volume refused - so an incomplete list says which of the two it was. Records whose name could not
+  be read and records too damaged to read are counted in the report as well, instead of quietly
+  going missing.
 - Deleted records are ignored. Hard links show up once per name. Compressed and sparse files
   count their logical size.
 - The folder tree is kept in memory so the preview pane is instant. Budget roughly 100 to 200 MB
@@ -324,7 +334,7 @@ Two details are worth knowing, because they decide what shows up:
 | `src/DataFinder.Core/Preview/Raw` | The data file decoder: the schematics, the frame reader and the pixel conversions, plus the set of schematics that ships with the app. |
 | `src/DataFinder.Core/Results` | The report formats: the tree the results are drawn as, the CSV that is written with the JSON file next to it, the older text list, and the web page with the code that gathers its thumbnails and writes them beside it. |
 | `src/DataFinder.App` | The WPF windows (`net8.0-windows`) - the main window, the *Scan...* dialog and the *Decode settings* dialog - plus the view models and services. Deliberately thin: it displays what the core produces. |
-| `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder so the parser is tested without a real drive. |
+| `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder and a whole NTFS volume built in memory, so parsing and scanning are tested without a real drive. |
 | `build.yml`, `app.manifest` | The CI workflow and the app manifest (unelevated start, per-monitor DPI, long path aware). |
 
 ## Tests
@@ -333,11 +343,14 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-209 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+225 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
-`$FILE_NAME`, cycles, missing records), the folder tree and rule evaluation, the human readable
+`$FILE_NAME`, cycles, missing records), reading a table whole when an extension record only comes
+into reach after an extent has been merged, carrying on past a hole between its runs and past a
+stretch the volume will not read, a list of the table's own that is not in a record, reading an
+attribute straight through its runs, the folder tree and rule evaluation, the human readable
 size parser, the CSV and JSON report round trip (quoting, column lookup, the relative path between
 the two files), the tree that the results are drawn as, the choice of file to select on its own,
 the estimate of how much longer a scan will take, and the data file decoder: every layout, the

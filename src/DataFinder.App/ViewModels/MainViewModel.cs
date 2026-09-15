@@ -669,18 +669,35 @@ public sealed class MainViewModel : ObservableObject
 
         if (incomplete.Count == 0)
         {
-            ScanWarning = string.Empty;
+            // A table read from end to end can still have something to report: records that could not
+            // be followed, files whose name was not readable. That is worth saying too - it is just
+            // not the same as a list that is known to be missing whole folders.
+            ScanWarning = Headline(warnings);
             StatusText =
                 $"Scan finished in {elapsed.TotalSeconds:0.0} s - {recordsInUse:N0} records in use, " +
                 $"{folders:N0} folders indexed on {drives}.";
             return;
         }
 
+        string headline = Headline(warnings);
         ScanWarning =
             $"On {string.Join(", ", incomplete.Select(volume => volume.DriveLetter + ":"))} the master file table " +
-            "could not be read in full, so folders on the rest of those volumes were never seen. The list is incomplete.";
+            "could not be read in full, so folders on the rest of those volumes were never seen. The list is incomplete." +
+            (headline.Length > 0 ? $" {headline}" : string.Empty);
         StatusText = "Scan finished, but at least one master file table could not be read in full - the results are incomplete.";
     }
+
+    /// <summary>
+    /// The one line to show about what a scan had to report, and how many more things there were:
+    /// the whole list is in the report file next to the CSV, which is where a reader who wants the
+    /// detail will look anyway.
+    /// </summary>
+    private static string Headline(IReadOnlyList<string> warnings) => warnings.Count switch
+    {
+        0 => string.Empty,
+        1 => warnings[0],
+        _ => $"{warnings[0]} ({warnings.Count - 1} more in the report)",
+    };
 
     private void OnScanProgress(ScanProgress progress, VolumeInfo volume, int volumeIndex, int volumeCount)
     {

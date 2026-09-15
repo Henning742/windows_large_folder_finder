@@ -4,7 +4,7 @@ namespace DataFinder.Core.Ntfs;
 /// Raw, sector aligned reads from a volume device (for example <c>\\.\D:</c>).
 /// Opening a volume this way requires administrator rights.
 /// </summary>
-public sealed class RawVolumeStream : IDisposable
+public sealed class RawVolumeStream : IDisposable, IRawVolumeReader
 {
     private readonly FileStream _stream;
     private readonly object _gate = new();
@@ -76,19 +76,6 @@ public sealed class RawVolumeStream : IDisposable
         {
             _volumeSizeBytes = volumeSizeBytes;
         }
-    }
-
-    /// <summary>Reads enough bytes to cover the boot sector, always aligned to the device sector size.</summary>
-    public byte[] ReadBootSectorProbe()
-    {
-        var buffer = new byte[NtfsBootSector.ProbeSize];
-        int read = ReadAligned(0, buffer, 0, buffer.Length);
-        if (read < buffer.Length)
-        {
-            Array.Resize(ref buffer, Math.Max(read, 0));
-        }
-
-        return buffer;
     }
 
     /// <summary>
@@ -174,4 +161,3 @@ public sealed class RawVolumeStream : IDisposable
         return total;
     }
 }
-

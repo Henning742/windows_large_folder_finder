@@ -41,11 +41,20 @@ public sealed class MftRecordParseResult
     /// <summary>True when the record continues in another record (a fragmented attribute).</summary>
     public bool HasAttributeList { get; set; }
 
-    /// <summary>True when the $ATTRIBUTE_LIST is non-resident, so its own entries could not be read.</summary>
+    /// <summary>
+    /// True when the $ATTRIBUTE_LIST is non-resident. Its entries then live in the attribute's own
+    /// data runs rather than in the record, so they take the volume to read.
+    /// </summary>
     public bool AttributeListIsNonResident { get; set; }
+
+    /// <summary>How long a non-resident $ATTRIBUTE_LIST is; zero when the record holds it itself.</summary>
+    public long AttributeListDataSize { get; set; }
 
     /// <summary>The entries of the $ATTRIBUTE_LIST, each naming the record that holds an attribute.</summary>
     public List<AttributeListEntry> AttributeList { get; } = new();
+
+    /// <summary>Where a non-resident $ATTRIBUTE_LIST keeps its entries.</summary>
+    public List<DataRunExtent> AttributeListExtents { get; } = new();
 
     /// <summary>
     /// The extents of the unnamed $DATA attribute. Usually a single extent; more than one when the
@@ -66,7 +75,9 @@ public sealed class MftRecordParseResult
         DataSize = 0;
         HasAttributeList = false;
         AttributeListIsNonResident = false;
+        AttributeListDataSize = 0;
         AttributeList.Clear();
+        AttributeListExtents.Clear();
         DataExtents.Clear();
         Links.Clear();
     }

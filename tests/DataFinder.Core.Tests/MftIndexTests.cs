@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using DataFinder.Core.Models;
 using DataFinder.Core.Ntfs;
 using DataFinder.Core.Tests.Support;
@@ -8,6 +9,32 @@ namespace DataFinder.Core.Tests;
 public sealed class MftIndexTests
 {
     private const long Megabyte = 1024L * 1024L;
+
+    [Fact]
+    public void SaysWhenRecordsCouldNotBePlacedOrRead()
+    {
+        var index = new MftIndex();
+        AddDirectory(index, 5, 5, ".");
+        AddDirectory(index, 100, 5, "dataset");
+        AddFile(index, 200, 100, "a.bin", 60 * Megabyte);
+
+        // A file whose $FILE_NAME lives in an extension record that could not be read arrives with no
+        // name at all, and one record has an attribute so damaged that its length makes no sense.
+        Add(index, new MftRecordBuilder(201, isDirectory: false).AddNonResidentDataAttribute(60 * Megabyte).Build(), 201);
+
+        byte[] damaged = new MftRecordBuilder(202, isDirectory: false)
+            .AddFileNameAttribute(100, "b.bin", 60 * Megabyte, isDirectory: false)
+            .Build();
+        BinaryPrimitives.WriteUInt32LittleEndian(damaged.AsSpan(0x38 + 0x04, 4), 0xFFFFFF);
+        Add(index, damaged, 202);
+
+        AggregationResult aggregation = index.Build(new ScanSettings { MinSizeBytes = 0, MinDirectFileCount = 0 }, @"D:\");
+
+        Assert.Equal(1, index.UnnamedRecordCount);
+        Assert.Equal(1, index.CorruptRecordCount);
+        Assert.Contains(aggregation.Warnings, warning => warning.Contains("were damaged and could not be read", StringComparison.Ordinal));
+        Assert.Contains(aggregation.Warnings, warning => warning.Contains("their name could not be read", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void ReportsOnlyFoldersThatMatchBothRules()

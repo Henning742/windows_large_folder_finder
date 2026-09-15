@@ -20,11 +20,18 @@ public sealed class MftRecordParser
     /// Parses one record. The same (reused) result object is returned every time, or null when
     /// the bytes are not a usable MFT record.
     /// </summary>
+    /// <param name="captureDataRunlist">True when the $DATA run lists are wanted, which only $MFT asks for.</param>
+    /// <param name="isKnownExtension">
+    /// True when the caller already knows this is an extension record, read because a base record's
+    /// <c>$ATTRIBUTE_LIST</c> named it. An extension record can have its in-use flag clear, and its
+    /// attributes - a later extent of the attribute, for instance - are needed all the same.
+    /// </param>
     public MftRecordParseResult? Parse(
         Span<byte> record,
         int bytesPerSector,
         uint recordNumber,
-        bool captureDataRunlist = false)
+        bool captureDataRunlist = false,
+        bool isKnownExtension = false)
     {
         _result.Reset();
         _result.RecordNumber = recordNumber;
@@ -48,7 +55,10 @@ public sealed class MftRecordParser
         // A non-zero base reference marks this record as an extension of another record.
         _result.BaseRecordNumber = (uint)(ReadUInt64(record, 0x20) & 0x0000FFFFFFFFFFFFUL);
 
-        if (!_result.InUse)
+        // A record that is not in use is a deleted file, and what is left in it is not worth reading.
+        // An extension record is not in use either, but its attributes are exactly what its base
+        // record is missing, so a caller that knows it is one has them read.
+        if (!_result.InUse && !isKnownExtension)
         {
             return _result;
         }
@@ -118,7 +128,7 @@ public sealed class MftRecordParser
 
                     if (captureDataRunlist && nonResident == 1)
                     {
-                        CaptureDataExtent(record, position, length, _result);
+                        CaptureExtent(record, position, length, _result.DataExtents);
                     }
 
                     break;
@@ -230,9 +240,12 @@ public sealed class MftRecordParser
         byte nonResident = record[attributeOffset + 0x08];
         if (nonResident != 0)
         {
-            // A non-resident $ATTRIBUTE_LIST would have to be read through its own data runs, which
-            // needs the volume. That layout is extremely rare, so it is reported instead.
+            // A non-resident $ATTRIBUTE_LIST keeps its entries in the attribute's own data runs, so
+            // the record can only say where they are: reading them takes the volume. Whoever has one
+            // - the scanner - does that and calls ReadAttributeListEntries with what came back.
             result.AttributeListIsNonResident = true;
+            result.AttributeListDataSize = Math.Max(ReadInt64(record, attributeOffset + 0x30), 0);
+            CaptureExtent(record, attributeOffset, attributeLength, result.AttributeListExtents);
             return;
         }
 
@@ -246,17 +259,30 @@ public sealed class MftRecordParser
             return;
         }
 
-        int listEnd = Math.Min(end, start + contentLength);
-        int position = start;
+        int available = Math.Min(end, start + contentLength) - start;
+        if (available > 0)
+        {
+            ReadAttributeListEntries(record.Slice(start, available), result);
+        }
+    }
+
+    /// <summary>
+    /// Reads the entries of an <c>$ATTRIBUTE_LIST</c> out of its content, wherever that content came
+    /// from: the record itself, or the attribute's own data runs when the list is not resident.
+    /// </summary>
+    public static void ReadAttributeListEntries(ReadOnlySpan<byte> list, MftRecordParseResult result)
+    {
+        int listEnd = list.Length;
+        int position = 0;
 
         while (position + 0x18 <= listEnd)
         {
-            uint attributeType = ReadUInt32(record, position);
-            int entryLength = ReadUInt16(record, position + 0x04);
-            int nameLength = record[position + 0x06];
-            int nameOffset = record[position + 0x07];
-            long lowestVcn = ReadInt64(record, position + 0x08);
-            uint recordNumber = (uint)(ReadUInt64(record, position + 0x10) & 0x0000FFFFFFFFFFFFUL);
+            uint attributeType = ReadUInt32(list, position);
+            int entryLength = ReadUInt16(list, position + 0x04);
+            int nameLength = list[position + 0x06];
+            int nameOffset = list[position + 0x07];
+            long lowestVcn = ReadInt64(list, position + 0x08);
+            uint recordNumber = (uint)(ReadUInt64(list, position + 0x10) & 0x0000FFFFFFFFFFFFUL);
 
             if (entryLength < 0x18 || position + entryLength > listEnd)
             {
@@ -268,7 +294,7 @@ public sealed class MftRecordParser
                 nameOffset >= 0x18 &&
                 nameOffset + (nameLength * 2) <= entryLength)
             {
-                name = Encoding.Unicode.GetString(record.Slice(position + nameOffset, nameLength * 2));
+                name = Encoding.Unicode.GetString(list.Slice(position + nameOffset, nameLength * 2));
             }
 
             result.AttributeList.Add(new AttributeListEntry(attributeType, lowestVcn, recordNumber, name));
@@ -276,7 +302,7 @@ public sealed class MftRecordParser
         }
     }
 
-    private static void CaptureDataExtent(ReadOnlySpan<byte> record, int attributeOffset, int attributeLength, MftRecordParseResult result)
+    private static void CaptureExtent(ReadOnlySpan<byte> record, int attributeOffset, int attributeLength, List<DataRunExtent> extents)
     {
         int runlistOffset = ReadUInt16(record, attributeOffset + 0x20);
         int start = attributeOffset + runlistOffset;
@@ -289,12 +315,12 @@ public sealed class MftRecordParser
 
         // Each extent's mapping pairs are relative to its own starting virtual cluster number.
         long lowestVcn = ReadInt64(record, attributeOffset + 0x10);
-        if (result.DataExtents.Exists(extent => extent.LowestVcn == lowestVcn))
+        if (extents.Exists(extent => extent.LowestVcn == lowestVcn))
         {
             return;
         }
 
-        result.DataExtents.Add(new DataRunExtent(lowestVcn, record.Slice(start, MeasureRunlist(record, start, end)).ToArray()));
+        extents.Add(new DataRunExtent(lowestVcn, record.Slice(start, MeasureRunlist(record, start, end)).ToArray()));
     }
 
     /// <summary>

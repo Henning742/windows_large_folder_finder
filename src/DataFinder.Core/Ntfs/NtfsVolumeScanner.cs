@@ -12,6 +12,21 @@ public sealed class NtfsVolumeScanner
     private const int RecordsPerProgressReport = 4096;
     private const int CancellationCheckMask = 0x3FF;
 
+    private readonly Func<char, IRawVolumeReader> _openVolume;
+
+    public NtfsVolumeScanner()
+        : this(RawVolumeStream.Open)
+    {
+    }
+
+    /// <summary>
+    /// Takes the volume from somewhere else. This is how a scan is run without a real drive: the
+    /// tests hand over a volume built in memory, which is also the only way to try out what happens
+    /// when part of the master file table cannot be read.
+    /// </summary>
+    public NtfsVolumeScanner(Func<char, IRawVolumeReader> openVolume) =>
+        _openVolume = openVolume ?? throw new ArgumentNullException(nameof(openVolume));
+
     public ScanReport Scan(
         VolumeInfo volume,
         ScanSettings settings,
@@ -21,7 +36,7 @@ public sealed class NtfsVolumeScanner
         var stopwatch = Stopwatch.StartNew();
         var warnings = new List<string>();
 
-        using RawVolumeStream raw = RawVolumeStream.Open(volume.DriveLetter);
+        using IRawVolumeReader raw = _openVolume(volume.DriveLetter);
 
         if (!NtfsBootSector.TryParse(raw.ReadBootSectorProbe(), out NtfsBootSector? bootSector, out string? bootError) ||
             bootSector is null)
@@ -50,7 +65,12 @@ public sealed class NtfsVolumeScanner
         long mftDataSize = mftRecord.DataSize;
         bool mftHasAttributeList = mftRecord.HasAttributeList;
 
-        List<DataRun> runs = Runlist.DecodeExtents(mftRecord.DataExtents);
+        // The $MFT's own $ATTRIBUTE_LIST can continue in extension records, so the whole table is
+        // resolved before it is read instead of stopping at the end of the first extent.
+        List<DataRun> runs = MftExtentResolver.Resolve(
+            raw, bootSector.BytesPerCluster, bootSector.BytesPerSector, recordSize, mftRecord);
+        mftDataSize = Math.Max(mftDataSize, mftRecord.DataSize);
+
         if (runs.Count == 0)
         {
             if (mftDataSize <= 0)
@@ -63,19 +83,6 @@ public sealed class NtfsVolumeScanner
             warnings.Add(
                 "The $MFT data runs could not be decoded, so the table was read as a single contiguous block. " +
                 "On a heavily fragmented volume some folders may be missing.");
-        }
-        else if (mftHasAttributeList)
-        {
-            // The $MFT's own $DATA attribute can continue in extension records. Read them so the
-            // whole table is available instead of stopping at the end of the first extent.
-            int knownExtents = mftRecord.DataExtents.Count;
-            ResolveMftExtents(raw, bootSector, recordSize, runs, mftDataSize, mftRecord);
-
-            if (mftRecord.DataExtents.Count > knownExtents)
-            {
-                runs = Runlist.DecodeExtents(mftRecord.DataExtents);
-                mftDataSize = Math.Max(mftDataSize, mftRecord.DataSize);
-            }
         }
 
         if (mftHasAttributeList && !RunlistCoversTable(runs, bootSector.BytesPerCluster, mftDataSize))
@@ -90,13 +97,23 @@ public sealed class NtfsVolumeScanner
         long recordsRead = 0;
         long recordsInUse = 0;
         long unresolvedAttributeLists = 0;
+        long recordsInHoles = 0;
+        long unreadableRecords = 0;
+        long stoppedAt = -1;
+        bool stoppedByHole = false;
         bool mftReadIncomplete = false;
 
         using (var reader = new MftRecordReader(raw, bootSector.BytesPerCluster, recordSize, runs, mftDataSize))
         {
-            var expander = new MftRecordExpander(reader, bootSector.BytesPerSector, recordSize);
+            var expander = new MftRecordExpander(
+                reader,
+                bootSector.BytesPerSector,
+                recordSize,
+                readAttributeContent: MftExtentResolver.AttributeContent(raw, bootSector.BytesPerCluster));
 
-            for (long recordNumber = 0; recordNumber < recordCount; recordNumber++)
+            long recordNumber = 0;
+
+            while (recordNumber < recordCount)
             {
                 if ((recordNumber & CancellationCheckMask) == 0)
                 {
@@ -114,18 +131,51 @@ public sealed class NtfsVolumeScanner
                         index.DirectoryCount));
                 }
 
-                if (!reader.TryGetRecord(recordNumber, recordBuffer))
+                MftRecordRead read = reader.ReadRecord(recordNumber, recordBuffer);
+
+                if (read == MftRecordRead.BeyondTable)
                 {
-                    mftReadIncomplete = true;
-                    warnings.Add($"The master file table ended early, at record {recordNumber:N0} of {recordCount:N0}.");
                     break;
                 }
 
-                recordsRead = recordNumber + 1;
+                if (read != MftRecordRead.Success)
+                {
+                    // A hole in the run list, or a place the volume will not read, is not the end of
+                    // the table: find the next record there is anything to read and carry on, so
+                    // whatever sits after the damage is still found. Going round forever is not
+                    // possible - the record number only ever moves forward.
+                    mftReadIncomplete = true;
+                    bool hole = read == MftRecordRead.NotCovered;
+                    long next = hole
+                        ? reader.FindNextCoveredRecord(recordNumber + 1)
+                        : reader.FindNextReadableRecord(recordNumber, recordCount);
+
+                    if (next < 0 || next >= recordCount)
+                    {
+                        stoppedAt = recordNumber;
+                        stoppedByHole = hole;
+                        break;
+                    }
+
+                    if (hole)
+                    {
+                        recordsInHoles += next - recordNumber;
+                    }
+                    else
+                    {
+                        unreadableRecords += next - recordNumber;
+                    }
+
+                    recordNumber = next;
+                    continue;
+                }
+
+                recordsRead++;
 
                 MftRecordParseResult? parsed = parser.Parse(recordBuffer, bootSector.BytesPerSector, (uint)recordNumber);
                 if (parsed is null)
                 {
+                    recordNumber++;
                     continue;
                 }
 
@@ -142,7 +192,33 @@ public sealed class NtfsVolumeScanner
 
                     index.Add(parsed);
                 }
+
+                recordNumber++;
             }
+        }
+
+        if (stoppedAt >= 0)
+        {
+            // Where the scan has to stop says which of the two it was: a run list that stops short, or
+            // a volume that will not hand over the bytes its run list points at.
+            warnings.Add(stoppedByHole
+                ? $"The data runs of the master file table stop at record {stoppedAt:N0} of {recordCount:N0}, " +
+                  "so the records after that were not read."
+                : $"The master file table could not be read past record {stoppedAt:N0} of {recordCount:N0}, " +
+                  "so folders stored after that are missing from the results.");
+        }
+
+        if (recordsInHoles > 0)
+        {
+            warnings.Add(
+                $"{recordsInHoles:N0} records fall in a hole between the data runs of the master file table and were skipped.");
+        }
+
+        if (unreadableRecords > 0)
+        {
+            warnings.Add(
+                $"{unreadableRecords:N0} records could not be read from the volume and were skipped, " +
+                "so folders stored in them are missing from the results.");
         }
 
         if (unresolvedAttributeLists > 0)
@@ -151,7 +227,7 @@ public sealed class NtfsVolumeScanner
                 $"{unresolvedAttributeLists:N0} files could not be fully read because their $ATTRIBUTE_LIST pointed at records that were missing or damaged.");
         }
 
-        progress?.Report(new ScanProgress("Applying the rules", recordsRead, Math.Max(recordCount, 1), index.DirectoryCount));
+        progress?.Report(new ScanProgress("Applying the rules", Math.Min(recordsRead, recordCount), Math.Max(recordCount, 1), index.DirectoryCount));
 
         AggregationResult aggregation = index.Build(settings, volume.RootPath);
         warnings.AddRange(aggregation.Warnings);
@@ -172,32 +248,6 @@ public sealed class NtfsVolumeScanner
             MftReadCompleted = !mftReadIncomplete,
             Warnings = warnings,
         };
-    }
-
-    /// <summary>
-    /// Reads the extension records referenced by the <c>$MFT</c>'s own <c>$ATTRIBUTE_LIST</c> and
-    /// merges their <c>$DATA</c> run lists into the record, so a fragmented master file table can
-    /// be read in full. Records are read through the runs found so far; the extension records of
-    /// <c>$MFT</c> always live early enough in the table to be reachable.
-    /// </summary>
-    private static void ResolveMftExtents(
-        RawVolumeStream raw,
-        NtfsBootSector bootSector,
-        int recordSize,
-        IReadOnlyList<DataRun> runs,
-        long mftDataSize,
-        MftRecordParseResult mftRecord)
-    {
-        try
-        {
-            using var reader = new MftRecordReader(raw, bootSector.BytesPerCluster, recordSize, runs, mftDataSize);
-            var expander = new MftRecordExpander(reader, bootSector.BytesPerSector, recordSize, captureDataRunlists: true);
-            expander.Expand(mftRecord);
-        }
-        catch (NtfsScanException)
-        {
-            // A malformed list or run list simply leaves the runs as they were.
-        }
     }
 
     /// <summary>True when the runs reach the very end of the attribute they describe.</summary>

@@ -19,20 +19,34 @@ public sealed class MftRecordExpander
     private readonly int _bytesPerSector;
     private readonly bool _captureDataRunlists;
     private readonly byte[] _buffer;
+    private readonly Func<IReadOnlyList<DataRunExtent>, long, byte[]?>? _readAttributeContent;
+
+    /// <summary>
+    /// The most of a non-resident <c>$ATTRIBUTE_LIST</c> that is read. A real one is a few hundred
+    /// bytes long; a length past this is corruption, and not worth an allocation.
+    /// </summary>
+    private const long MaxAttributeListBytes = 256 * 1024;
 
     /// <param name="source">Where extension records are read from.</param>
     /// <param name="bytesPerSector">Sector size used to undo the update sequence fix-ups.</param>
     /// <param name="recordSize">Size of one MFT record.</param>
     /// <param name="captureDataRunlists">True when the $DATA run lists are needed (only for $MFT).</param>
+    /// <param name="readAttributeContent">
+    /// Reads the content of an attribute that is not resident, given its extents and its length, or
+    /// null when the caller has no way to read outside a record. Only a non-resident
+    /// <c>$ATTRIBUTE_LIST</c> asks for it.
+    /// </param>
     public MftRecordExpander(
         IMftRecordSource source,
         int bytesPerSector,
         int recordSize,
-        bool captureDataRunlists = false)
+        bool captureDataRunlists = false,
+        Func<IReadOnlyList<DataRunExtent>, long, byte[]?>? readAttributeContent = null)
     {
         _source = source;
         _bytesPerSector = bytesPerSector;
         _captureDataRunlists = captureDataRunlists;
+        _readAttributeContent = readAttributeContent;
         _buffer = new byte[recordSize];
     }
 
@@ -44,7 +58,7 @@ public sealed class MftRecordExpander
     /// </summary>
     public bool Expand(MftRecordParseResult baseRecord)
     {
-        if (baseRecord.AttributeListIsNonResident)
+        if (baseRecord.AttributeListIsNonResident && !ReadAttributeList(baseRecord))
         {
             return false;
         }
@@ -77,11 +91,18 @@ public sealed class MftRecordExpander
                 continue;
             }
 
-            MftRecordParseResult? extension = _parser.Parse(_buffer, _bytesPerSector, entry.RecordNumber, _captureDataRunlists);
+            MftRecordParseResult? extension = _parser.Parse(
+                _buffer, _bytesPerSector, entry.RecordNumber, _captureDataRunlists, isKnownExtension: true);
             if (extension is null || extension.IsCorrupt)
             {
                 complete = false;
                 continue;
+            }
+
+            // An extension record can carry a list of its own that is not in the record either.
+            if (extension.AttributeListIsNonResident && !ReadAttributeList(extension))
+            {
+                complete = false;
             }
 
             Merge(baseRecord, extension);
@@ -93,6 +114,31 @@ public sealed class MftRecordExpander
         }
 
         return complete;
+    }
+
+    /// <summary>
+    /// Reads the entries of a non-resident <c>$ATTRIBUTE_LIST</c>. The list lives in clusters of its
+    /// own, which no record points at, so this only works when the caller handed over a way to read
+    /// them.
+    /// </summary>
+    private bool ReadAttributeList(MftRecordParseResult record)
+    {
+        if (_readAttributeContent is null ||
+            record.AttributeListExtents.Count == 0 ||
+            record.AttributeListDataSize <= 0 ||
+            record.AttributeListDataSize > MaxAttributeListBytes)
+        {
+            return false;
+        }
+
+        byte[]? content = _readAttributeContent(record.AttributeListExtents, record.AttributeListDataSize);
+        if (content is null || content.Length == 0)
+        {
+            return false;
+        }
+
+        MftRecordParser.ReadAttributeListEntries(content, record);
+        return record.AttributeList.Count > 0;
     }
 
     /// <summary>

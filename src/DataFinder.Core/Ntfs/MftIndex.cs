@@ -28,9 +28,29 @@ public sealed class MftIndex
     /// <summary>Number of file entries seen (a file with two names in two folders counts twice).</summary>
     public long FileLinkCount { get; private set; }
 
+    /// <summary>
+    /// Records in use that could not be put in a folder because no name could be read for them - the
+    /// name lives in an extension record that could not be read. They are missing from the results.
+    /// </summary>
+    public long UnnamedRecordCount { get; private set; }
+
+    /// <summary>Records that were too damaged to read at all.</summary>
+    public long CorruptRecordCount { get; private set; }
+
     public void Add(MftRecordParseResult record)
     {
-        if (record is null || !record.InUse || record.IsCorrupt)
+        if (record is null)
+        {
+            return;
+        }
+
+        if (record.IsCorrupt)
+        {
+            CorruptRecordCount++;
+            return;
+        }
+
+        if (!record.InUse)
         {
             return;
         }
@@ -55,6 +75,15 @@ public sealed class MftIndex
 
         if (recordNumber < FirstUserRecordNumber)
         {
+            return;
+        }
+
+        // A file is only ever seen through a name, so a record whose names could not be read counts
+        // nowhere else. Saying so is the difference between "nothing matched" and "some of it could
+        // not be looked at".
+        if (record.Links.Count == 0)
+        {
+            UnnamedRecordCount++;
             return;
         }
 
@@ -140,6 +169,18 @@ public sealed class MftIndex
         if (orphanDirectories > 0)
         {
             warnings.Add($"{orphanDirectories:N0} folders were skipped because their parent chain is not reachable from the volume root.");
+        }
+
+        if (CorruptRecordCount > 0)
+        {
+            warnings.Add($"{CorruptRecordCount:N0} master file table records were damaged and could not be read.");
+        }
+
+        if (UnnamedRecordCount > 0)
+        {
+            warnings.Add(
+                $"{UnnamedRecordCount:N0} files are missing from the results because their name could not be read, " +
+                "so the folders they sit in are smaller than they really are.");
         }
 
         // Sorted by path rather than by size: the result list is read as a folder tree, so the
