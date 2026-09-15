@@ -22,7 +22,10 @@ daemon, no dependencies to install.
    that first file for you, so the pane is never empty: *On opening a folder, select* at the top
    of the right pane chooses between the first file, the middle file, a random file, or nothing
    at all. Folders are skipped when it picks, so you land on something with a preview.
-5. **Export** writes the list to a `.txt` file; **Import** reads one back.
+5. Type a note about a folder in the *Comment* box under the path. It is saved with the report.
+6. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
+   records the volumes, the rules and how the scan went. **Import** reads a report back, notes
+   included.
 
 Both rule values are editable in the *Rules* box, and both are re-applied instantly to the
 next scan.
@@ -80,27 +83,69 @@ The workflow lives at the repository root and runs every command from there, so 
 nothing to configure. Download the built `DataFinder.exe` from the *Artifacts* section of a
 workflow run.
 
-## The result file format
+## The result files
 
-One folder per line, and everything after a `#` is a comment:
+**Export** writes two files side by side, and both are named after the report:
 
 ```
-# NTFS Folder Finder results
-# generated: 2026-09-14 14:30:12 +08:00
-# volume: D: Work
-# rules: size > 200 MB (whole folder) and more than 200 files directly inside
-# folders: 2
-# format: one folder per line. Text after '#' is a comment. A '#' inside a path is written as '\#'.
-D:\data\set1
-D:\data\set2\raw     # checked 2026-09-14
+folders-D-20260915-1030.csv        the list itself, one folder per row
+folders-D-20260915-1030.meta.json  where it came from and what the rules were
 ```
 
-Blank lines, comments and duplicate paths are ignored when reading. A `#` that is really part of
-a path is written as `\#` on export and read back as `#`.
+### The CSV
 
-Importing only recovers the folder paths, so the app measures each folder straight from the file
-system to fill in the size and file-count columns. A folder that no longer exists is kept in the
-list and marked `not found`.
+The first row is a header, and the columns are:
+
+| Column | Meaning |
+|---|---|
+| `Path` | The folder's full path. |
+| `Comment` | Whatever you typed in the *Comment* box for that folder. |
+| `SizeBytes` / `Size` | The size the rules were tested against: the number, and the readable form. |
+| `DirectFiles` | Files sitting directly inside the folder. |
+| `Subfolders` | Folders sitting directly inside it. |
+| `TotalFiles` | Files below it, at any depth. |
+| `TotalSizeBytes` | Size of the folder and everything below it. |
+| `Exists` | `yes`, or `no` for an imported folder that is gone. |
+
+```
+Path,Comment,SizeBytes,Size,DirectFiles,Subfolders,TotalFiles,TotalSizeBytes,Exists
+D:\data\set1,checked 2026-09-14,314572800,300 MB,412,3,1590,1073741824,yes
+```
+
+Rows follow the order of the tree, so a folder comes right before the folders inside it. Quotes,
+commas and line breaks inside a path or a note are quoted the way RFC 4180 asks for, and the file
+is UTF-8 with a byte order mark so Excel reads notes in any language correctly.
+
+### The JSON
+
+Everything that does not belong in a spreadsheet lives in the JSON file: the volumes that were
+read, the rules, how long the scan took, how many records it read, whether the master file table
+was read in full, and any warnings. Its `resultsFile` field points at the CSV **by relative path**,
+so the two files can be moved or archived together:
+
+```json
+{
+  "format": "NTFS Folder Finder results",
+  "formatVersion": 1,
+  "generatedAt": "2026-09-15T10:30:12+08:00",
+  "resultsFile": "folders-D-20260915-1030.csv",
+  "rules": { "minSizeBytes": 209715200, "minDirectFileCount": 200, "sizeIncludesSubfolders": true },
+  "volumes": [ { "driveLetter": "D", "rootPath": "D:\\", "label": "Work" } ],
+  "folderCount": 2,
+  "scan": { "elapsedSeconds": 12.4, "recordsRead": 812345, "mftReadCompleted": true, "warnings": [] }
+}
+```
+
+### Importing
+
+A report is read back by column name, so a file that was edited or reordered still imports, and a
+plain list of paths with no header at all works too. Blank rows, rows that start with `#` and
+repeated paths are dropped. Importing recovers the paths and the notes only, so the app measures
+each folder straight from the file system to fill in the size and file-count columns. A folder that
+no longer exists is kept in the list and marked `not found`.
+
+Reports written by older versions (one folder per line, text after `#` is a comment) are still
+readable; they simply have no notes.
 
 ## What "size" means
 
@@ -134,7 +179,7 @@ Two details are worth knowing, because they decide what shows up:
 |---|---|
 | `src/DataFinder.Core` | The scanning engine. Targets plain `net8.0` with no Windows-only code, so it builds and runs anywhere - including in the Linux CI job. |
 | `src/DataFinder.Core/Ntfs` | Boot sector, data run list decoding, MFT record parsing, the record reader and the folder tree. |
-| `src/DataFinder.Core/Results` | The text import/export format. |
+| `src/DataFinder.Core/Results` | The report formats: the CSV that is written, the JSON file next to it, the older text list, and the tree the results are drawn as. |
 | `src/DataFinder.App` | The WPF window (`net8.0-windows`), view models and services. Deliberately thin: it displays what the core produces. |
 | `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder so the parser is tested without a real drive. |
 | `build.yml`, `app.manifest` | The CI workflow and the app manifest (unelevated start, per-monitor DPI, long path aware). |
@@ -145,9 +190,10 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-60 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+92 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
 `$FILE_NAME`, cycles, missing records), the folder tree and rule evaluation, the human readable
-size parser, and the text format round trip.
+size parser, the CSV and JSON report round trip (quoting, column lookup, the relative path between
+the two files), the tree that the results are drawn as, and the choice of file to select on its own.

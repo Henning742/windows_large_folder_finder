@@ -5,8 +5,9 @@ using DataFinder.Core.Models;
 namespace DataFinder.Core.Results;
 
 /// <summary>
-/// The plain text format used to export and import result lists: one folder per line, and
-/// everything after a '#' is treated as a comment.
+/// The plain text format the app used to export before reports became CSV: one folder per line, and
+/// everything after a '#' is treated as a comment. Writing it is kept so those files can still be
+/// produced and round-tripped, but the app itself only reads them now.
 /// </summary>
 public static class ResultFileFormat
 {
@@ -60,12 +61,21 @@ public static class ResultFileFormat
     /// <summary>Reads folder paths out of the text, ignoring comments, blank lines and duplicates.</summary>
     public static IReadOnlyList<string> ParsePaths(string? text)
     {
-        var paths = new List<string>();
+        return ParseRows(text).Select(row => row.Path).ToList();
+    }
+
+    /// <summary>
+    /// Reads the folder paths out of the text, ignoring comments, blank lines and duplicates. The
+    /// old format has no column for a note, so every comment comes back empty.
+    /// </summary>
+    public static IReadOnlyList<ResultRow> ParseRows(string? text)
+    {
+        var rows = new List<ResultRow>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (string.IsNullOrEmpty(text))
         {
-            return paths;
+            return rows;
         }
 
         foreach (string rawLine in text.Split('\n'))
@@ -79,11 +89,11 @@ public static class ResultFileFormat
             string path = ExtractPath(line);
             if (path.Length > 0 && seen.Add(path))
             {
-                paths.Add(path);
+                rows.Add(new ResultRow(path, string.Empty));
             }
         }
 
-        return paths;
+        return rows;
     }
 
     /// <summary>Returns the folder path on a single line, with any trailing comment removed.</summary>
@@ -109,6 +119,8 @@ public static class ResultFileFormat
     }
 
     public static IReadOnlyList<string> Load(string filePath) => ParsePaths(File.ReadAllText(filePath));
+
+    public static IReadOnlyList<ResultRow> LoadRows(string filePath) => ParseRows(File.ReadAllText(filePath));
 
     /// <summary>Finds the first '#' that is not escaped with a backslash.</summary>
     private static int FindCommentStart(string line)
@@ -158,4 +170,3 @@ public static class ResultFileFormat
         return builder.ToString();
     }
 }
-

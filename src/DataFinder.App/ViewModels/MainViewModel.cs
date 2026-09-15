@@ -25,9 +25,10 @@ public sealed class MainViewModel : ObservableObject
     private CancellationTokenSource? _contentsCancellation;
     private CancellationTokenSource? _previewCancellation;
 
-    private MftIndex? _index;
-    private AggregationResult? _aggregation;
-    private VolumeInfo? _scannedVolume;
+    /// <summary>One report per scanned volume, kept so the preview pane can read the folder tree.</summary>
+    private readonly List<ScanReport> _reports = new();
+
+    private string? _importedFrom;
     private ScanSettings? _lastSettings;
 
     private VolumeInfo? _selectedVolume;
@@ -41,6 +42,7 @@ public sealed class MainViewModel : ObservableObject
     private ResultTreeNode? _selectedResultNode;
     private FileEntry? _selectedContent;
     private AutoSelectMode _autoSelectMode = AutoSelectMode.FirstFile;
+    private string _selectedComment = string.Empty;
     private string _activeFolderPath = string.Empty;
     private ImageSource? _previewImage;
     private string _previewText = string.Empty;
@@ -208,9 +210,16 @@ public sealed class MainViewModel : ObservableObject
         get => _selectedResultNode;
         set
         {
-            if (SetProperty(ref _selectedResultNode, value) && value is not null)
+            if (!SetProperty(ref _selectedResultNode, value))
             {
-                OnPropertyChanged(nameof(HasSelectedFolder));
+                return;
+            }
+
+            OnPropertyChanged(nameof(HasSelectedFolder));
+            SelectedComment = value?.Result?.Comment ?? string.Empty;
+
+            if (value is not null)
+            {
                 ShowFolder(value.FullPath, value.Result?.RecordNumber ?? 0);
             }
         }
@@ -218,6 +227,27 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>True when the selected row stands for a folder that matched the rules.</summary>
     public bool HasSelectedFolder => SelectedResultNode?.Result is not null;
+
+    /// <summary>
+    /// The note that belongs to the selected folder. It is written to the comment column of the CSV
+    /// when the report is exported, and read back from there when a report is imported.
+    /// </summary>
+    public string SelectedComment
+    {
+        get => _selectedComment;
+        set
+        {
+            if (!SetProperty(ref _selectedComment, value))
+            {
+                return;
+            }
+
+            if (SelectedResultNode?.Result is { } folder)
+            {
+                folder.Comment = value;
+            }
+        }
+    }
 
     public FileEntry? SelectedContent
     {
@@ -374,7 +404,8 @@ public sealed class MainViewModel : ObservableObject
 
         if (item.IsDirectory)
         {
-            uint recordNumber = _aggregation is not null && _aggregation.TryGetRecordNumber(item.FullPath, out uint resolved) ? resolved : 0;
+            AggregationResult? aggregation = AggregationFor(item.FullPath);
+            uint recordNumber = aggregation is not null && aggregation.TryGetRecordNumber(item.FullPath, out uint resolved) ? resolved : 0;
             ShowFolder(item.FullPath, recordNumber);
             return;
         }
@@ -441,9 +472,9 @@ public sealed class MainViewModel : ObservableObject
                 () => new NtfsVolumeScanner().Scan(volume, settings, progress, _scanCancellation.Token),
                 _scanCancellation.Token);
 
-            _index = report.Index;
-            _aggregation = report.Aggregation;
-            _scannedVolume = report.Volume;
+            _reports.Clear();
+            _reports.Add(report);
+            _importedFrom = null;
             _lastSettings = settings;
 
             foreach (FolderResult result in report.Results)
@@ -511,16 +542,19 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task ImportAsync()
     {
-        string? file = _dialogs.OpenTextFile("Import folder list");
+        string? file = _dialogs.OpenReportFile("Import folder list");
         if (file is null)
         {
             return;
         }
 
-        IReadOnlyList<string> paths;
+        IReadOnlyList<ResultRow> rows;
         try
         {
-            paths = ResultFileFormat.Load(file);
+            // Reports are CSV now; the older text format is still read so old lists keep working.
+            rows = string.Equals(Path.GetExtension(file), ".csv", StringComparison.OrdinalIgnoreCase)
+                ? CsvResultFormat.Load(file)
+                : ResultFileFormat.LoadRows(file);
         }
         catch (Exception exception)
         {
@@ -528,7 +562,7 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        if (paths.Count == 0)
+        if (rows.Count == 0)
         {
             _dialogs.ShowInfo("No folder paths were found in that file.");
             return;
@@ -537,13 +571,14 @@ public sealed class MainViewModel : ObservableObject
         _scanCancellation = new CancellationTokenSource();
         IsScanning = true;
         ClearSession();
+        _importedFrom = file;
         Results.Clear();
         RebuildResultTree();
         UpdateResultSummary();
         ProgressValue = 0;
-        StatusText = $"Reading {paths.Count:N0} folders...";
+        StatusText = $"Reading {rows.Count:N0} folders...";
 
-        int total = paths.Count;
+        int total = rows.Count;
         var progress = new Progress<int>(done =>
         {
             ProgressValue = total == 0 ? 0 : (double)done / total * 100d;
@@ -553,7 +588,7 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             List<FolderResult> imported = await Task.Run(
-                () => MeasureImportedFolders(paths, progress, _scanCancellation.Token),
+                () => MeasureImportedFolders(rows, progress, _scanCancellation.Token),
                 _scanCancellation.Token);
 
             foreach (FolderResult result in imported)
@@ -585,20 +620,22 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    private static List<FolderResult> MeasureImportedFolders(IReadOnlyList<string> paths, IProgress<int>? progress, CancellationToken cancellationToken)
+    private static List<FolderResult> MeasureImportedFolders(IReadOnlyList<ResultRow> rows, IProgress<int>? progress, CancellationToken cancellationToken)
     {
-        var results = new List<FolderResult>(paths.Count);
+        var results = new List<FolderResult>(rows.Count);
 
-        for (int index = 0; index < paths.Count; index++)
+        for (int index = 0; index < rows.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string path = paths[index];
+            ResultRow row = rows[index];
+            string path = row.Path;
             FolderMeasurement measurement = FileSystemListing.Measure(path);
 
             results.Add(new FolderResult
             {
                 FullPath = path,
+                Comment = row.Comment,
                 RecordNumber = 0,
                 DirectFileCount = measurement.DirectFileCount,
                 DirectSizeBytes = measurement.DirectSizeBytes,
@@ -625,11 +662,7 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        string suggestedName = _scannedVolume is not null
-            ? $"folders-{_scannedVolume.DriveLetter}-{DateTime.Now:yyyyMMdd-HHmm}.txt"
-            : $"folders-{DateTime.Now:yyyyMMdd-HHmm}.txt";
-
-        string? file = _dialogs.SaveTextFile("Export folder list", suggestedName);
+        string? file = _dialogs.SaveReportFile("Export folder list", SuggestedReportName());
         if (file is null)
         {
             return;
@@ -637,13 +670,36 @@ public sealed class MainViewModel : ObservableObject
 
         try
         {
-            ResultFileFormat.Save(file, Results, _lastSettings, _scannedVolume);
-            StatusText = $"Exported {Results.Count:N0} folders to {file}.";
+            ReportMetadata metadata = CsvResultFormat.BuildMetadata(
+                _reports.Select(report => report.Volume),
+                _lastSettings,
+                _reports,
+                imported: _reports.Count == 0,
+                importedFrom: _importedFrom);
+
+            CsvResultFormat.Save(file, Results, metadata);
+
+            StatusText =
+                $"Exported {Results.Count:N0} folders to {file}, with the notes about the report in " +
+                $"{CsvResultFormat.MetadataPathFor(file)}.";
         }
         catch (Exception exception)
         {
             _dialogs.ShowError(exception.Message, "Export failed");
         }
+    }
+
+    /// <summary>A file name that says where the folders came from and when they were found.</summary>
+    private string SuggestedReportName()
+    {
+        string source = _reports.Count switch
+        {
+            0 => "imported",
+            1 => _reports[0].Volume.DriveLetter.ToString(),
+            _ => $"{_reports.Count}drives",
+        };
+
+        return $"folders-{source}-{DateTime.Now:yyyyMMdd-HHmm}.csv";
     }
 
     private void ClearResults()
@@ -659,11 +715,22 @@ public sealed class MainViewModel : ObservableObject
 
     private void ClearSession()
     {
-        _index = null;
-        _aggregation = null;
-        _scannedVolume = null;
+        _reports.Clear();
+        _importedFrom = null;
         ScanWarning = string.Empty;
     }
+
+    /// <summary>
+    /// The scan that covered a folder, so the preview pane can use the folder tree of that volume
+    /// instead of walking the disk again. Returns null for imported folders and for paths that no
+    /// scanned volume covers.
+    /// </summary>
+    private ScanReport? ReportFor(string path) =>
+        string.IsNullOrEmpty(path)
+            ? null
+            : _reports.FirstOrDefault(report => path.StartsWith(report.Volume.RootPath, StringComparison.OrdinalIgnoreCase));
+
+    private AggregationResult? AggregationFor(string path) => ReportFor(path)?.Aggregation;
 
     private void CancelRunningWork() => _scanCancellation?.Cancel();
 
@@ -683,10 +750,10 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
-        if (_index is not null && _aggregation is not null &&
-            _aggregation.TryGetRecordNumber(ActiveFolderPath, out uint resolvedRecord))
+        ScanReport? report = ReportFor(ActiveFolderPath);
+        if (report is not null && report.Aggregation.TryGetRecordNumber(ActiveFolderPath, out uint resolvedRecord))
         {
-            foreach (FileEntry entry in _index.GetChildren(_aggregation, resolvedRecord, ActiveFolderPath))
+            foreach (FileEntry entry in report.Index.GetChildren(report.Aggregation, resolvedRecord, ActiveFolderPath))
             {
                 Contents.Add(entry);
             }
@@ -747,7 +814,8 @@ public sealed class MainViewModel : ObservableObject
 
         int separator = path.LastIndexOf('\\');
         string parent = separator <= 2 ? path[..2] + "\\" : path[..separator];
-        uint recordNumber = _aggregation is not null && _aggregation.TryGetRecordNumber(parent, out uint resolved) ? resolved : 0;
+        AggregationResult? aggregation = AggregationFor(parent);
+        uint recordNumber = aggregation is not null && aggregation.TryGetRecordNumber(parent, out uint resolved) ? resolved : 0;
         ShowFolder(parent, recordNumber);
     }
 

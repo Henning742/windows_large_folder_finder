@@ -33,6 +33,9 @@ public sealed class FolderResult
     /// <summary>False when an imported path no longer exists on disk.</summary>
     public bool Exists { get; init; } = true;
 
+    /// <summary>A note the user typed about this folder. It travels with the report.</summary>
+    public string Comment { get; set; } = string.Empty;
+
     public string SizeText => Exists ? ByteSize.Format(SizeBytes) : "not found";
 
     public string FilesText => Exists ? DirectFileCount.ToString("N0") : "-";
@@ -43,4 +46,3 @@ public sealed class FolderResult
         ? $"{ByteSize.Format(TotalSizeBytes)} in total, {TotalFileCount:N0} files below, {DirectFileCount:N0} files directly inside, {SubfolderCount:N0} subfolders"
         : "The folder does not exist (or is not reachable) right now.";
 }
-

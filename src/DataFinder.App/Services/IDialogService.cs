@@ -7,8 +7,9 @@ public interface IDialogService
 
     void ShowInfo(string message, string title = "Information");
 
-    string? OpenTextFile(string title);
+    /// <summary>Asks for a report to import. CSV and the older text reports are both offered.</summary>
+    string? OpenReportFile(string title);
 
-    string? SaveTextFile(string title, string suggestedFileName);
+    /// <summary>Asks where the CSV report and its JSON companion file should be written.</summary>
+    string? SaveReportFile(string title, string suggestedFileName);
 }
-
