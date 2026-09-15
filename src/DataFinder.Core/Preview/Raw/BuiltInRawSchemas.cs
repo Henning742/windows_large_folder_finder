@@ -1,9 +1,11 @@
 namespace DataFinder.Core.Preview.Raw;
 
 /// <summary>
-/// The schematics the app comes with: one for each recording the reference scripts were written
-/// for, plus a couple of plain shapes that raw data files often turn out to be. A fresh copy is
-/// handed out every time, so changing one in the window never changes what the app starts with.
+/// The schematics the app comes with: the recordings the reference scripts were written for, plus
+/// the two plain shapes a raw data file usually turns out to be. One per layout, so nothing is
+/// offered twice - anything else is a couple of boxes away in the Decode settings dialog. A fresh
+/// copy is handed out every time, so changing one in the window never changes what the app starts
+/// with.
 /// </summary>
 public static class BuiltInRawSchemas
 {
@@ -19,17 +21,12 @@ public static class BuiltInRawSchemas
         },
         new RawSchema
         {
-            Name = "8 bit grayscale 1280 x 720",
-            Width = 1280,
-            Height = 720,
-            DataType = RawDataType.U8,
-        },
-        new RawSchema
-        {
-            Name = "8 bit colour 1920 x 1080",
-            Width = 1920,
-            Height = 1080,
-            DataType = RawDataType.U8Rgb,
+            // The headerless 16 bit dump an ordinary frame grabber writes.
+            Name = "16 bit grayscale 640 x 512",
+            Width = 640,
+            Height = 512,
+            DataType = RawDataType.U16,
+            Normalize = true,
         },
         new RawSchema
         {
@@ -40,32 +37,6 @@ public static class BuiltInRawSchemas
             DataType = RawDataType.U16,
             Normalize = true,
             Borders = new RawBorders(1, 1, 4, 0),
-        },
-        new RawSchema
-        {
-            Name = "16 bit grayscale 640 x 512, stretched",
-            Width = 640,
-            Height = 512,
-            DataType = RawDataType.U16,
-            Normalize = true,
-        },
-        new RawSchema
-        {
-            // The shape a headerless 16 bit dump from an ordinary frame grabber usually has.
-            Name = "16 bit grayscale 640 x 480, stretched",
-            Width = 640,
-            Height = 480,
-            DataType = RawDataType.U16,
-            Normalize = true,
-        },
-        new RawSchema
-        {
-            // The same frame without the stretch: it stays dark unless the data really does use the
-            // whole 16 bit range.
-            Name = "16 bit grayscale 640 x 512, as it is",
-            Width = 640,
-            Height = 512,
-            DataType = RawDataType.U16,
         },
         new RawSchema
         {
@@ -86,14 +57,6 @@ public static class BuiltInRawSchemas
             HeaderLength = 64,
             DataType = RawDataType.U16U8,
             Borders = new RawBorders(1, 1, 0, 0),
-        },
-        new RawSchema
-        {
-            Name = "Colour 1920 x 540 (UYVY, speckle removed)",
-            Width = 1920,
-            Height = 540,
-            DataType = RawDataType.YuvUyvy,
-            RemoveWhite = true,
         },
         new RawSchema
         {
