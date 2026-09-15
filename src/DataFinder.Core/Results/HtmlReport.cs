@@ -230,8 +230,18 @@ public static class HtmlReport
         foreach (TreeItem item in items)
         {
             HtmlReportFolder folder = item.Folder;
+            bool branch = item.Children.Count > 0;
 
-            page.Append("<li><a href=\"#f").Append(item.Section).Append('"');
+            page.Append("<li>");
+
+            // A branch of the tree folds away on its own, so a list of hundreds of folders can be
+            // walked a level at a time.
+            if (branch)
+            {
+                page.Append("<details open><summary>");
+            }
+
+            page.Append("<a href=\"#f").Append(item.Section).Append('"');
             if (!folder.IsMatch)
             {
                 page.Append(" class=\"parent\"");
@@ -251,7 +261,15 @@ public static class HtmlReport
             }
 
             page.Append("</a>");
-            WriteList(page, item.Children, depth + 1);
+
+            if (branch)
+            {
+                page.Append("</summary>");
+                WriteList(page, item.Children, depth + 1);
+                page.AppendLine("</details></li>");
+                continue;
+            }
+
             page.AppendLine("</li>");
         }
 
@@ -462,7 +480,8 @@ public static class HtmlReport
     private const string Script = """
         <script>
           (function () {
-            var sections = Array.prototype.slice.call(document.querySelectorAll('section.folder details'));
+            var sections = Array.prototype.slice.call(
+              document.querySelectorAll('section.folder details, nav details'));
 
             document.getElementById('expandAll').addEventListener('click', function () {
               sections.forEach(function (details) { details.open = true; });

@@ -184,8 +184,8 @@ The page is a tree of every row on the left and a section per folder that matche
   folder with something in it.
 - Each section says the full path, the size, the file counts and the note you typed, and shows a
   few pictures of what is inside.
-- Everything folds away: the sections, and the tree itself. *Expand all* and *Collapse all* at the
-  top do the lot.
+- Everything folds away: the sections, and the branches of the tree itself. *Expand all* and
+  *Collapse all* at the top do the lot.
 
 The pictures are picked at random from the pictures and the recordings directly inside a folder, so
 two runs over the same folder do not have to look the same. A picture file is carried as it is; a

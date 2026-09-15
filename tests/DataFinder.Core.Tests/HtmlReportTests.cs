@@ -46,10 +46,13 @@ public sealed class HtmlReportTests
                 Match(@"D:\two\b", "b", 2, 1L * 1024 * 1024 * 1024),
             });
 
-        Assert.Contains("<li><a href=\"#f1\" class=\"parent\" title=\"D:\\\">", html, StringComparison.Ordinal);
+        Assert.Contains("<a href=\"#f1\" class=\"parent\" title=\"D:\\\">", html, StringComparison.Ordinal);
         Assert.Contains("href=\"#f1\" class=\"parent\" title=\"D:\\one\"", html, StringComparison.Ordinal);
         Assert.Contains("href=\"#f2\" class=\"parent\" title=\"D:\\two\"", html, StringComparison.Ordinal);
         Assert.Contains("<section class=\"folder\" id=\"f2\">", html, StringComparison.Ordinal);
+
+        // A folder with folders under it folds away in the contents, like the sections do.
+        Assert.Contains("<details open><summary><a href=\"#f1\"", html, StringComparison.Ordinal);
     }
 
     [Fact]
