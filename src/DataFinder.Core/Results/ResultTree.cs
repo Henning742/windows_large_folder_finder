@@ -141,9 +141,13 @@ public static class ResultTree
             ResultTreeNode? parent = null;
             string path = string.Empty;
 
+            // The separator comes from the root of the path: a drive or a network share is joined
+            // with backslashes, a path that starts at "/" is joined with slashes.
+            char separator = segments[0].EndsWith('/') ? '/' : '\\';
+
             for (int index = 0; index < segments.Count; index++)
             {
-                path = index == 0 ? segments[0] : Join(path, segments[index]);
+                path = index == 0 ? segments[0] : Join(path, segments[index], separator);
 
                 if (!nodes.TryGetValue(path, out ResultTreeNode? node))
                 {
@@ -277,9 +281,8 @@ public static class ResultTree
         return segments;
     }
 
-    private static string Join(string parent, string child)
+    private static string Join(string parent, string child, char separator)
     {
-        char separator = parent.EndsWith('/') ? '/' : '\\';
         return parent.EndsWith(separator) ? parent + child : parent + separator + child;
     }
 

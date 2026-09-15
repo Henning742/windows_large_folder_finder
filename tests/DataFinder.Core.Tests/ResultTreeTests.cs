@@ -7,6 +7,18 @@ namespace DataFinder.Core.Tests;
 public sealed class ResultTreeTests
 {
     [Fact]
+    public void BuildsThePathWithTheSeparatorItWasGiven()
+    {
+        IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[] { Folder("/home/lin/data/set1") });
+
+        Assert.Equal("/", roots[0].FullPath);
+        Assert.Equal("/home", roots[0].Children[0].FullPath);
+
+        ResultTreeNode match = Assert.Single(ResultTree.All(roots), node => node.IsMatch);
+        Assert.Equal("/home/lin/data/set1", match.FullPath);
+    }
+
+    [Fact]
     public void AddsUpWhatIsBelowAFolderThatDidNotMatch()
     {
         IReadOnlyList<ResultTreeNode> roots = ResultTree.Build(new[]
