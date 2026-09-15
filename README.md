@@ -267,7 +267,7 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-175 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+177 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split

@@ -160,6 +160,53 @@ public sealed class RawImageDecoderTests
     }
 
     [Fact]
+    public void PinsTheDarkestAndBrightestTwoPercentOfALongFrame()
+    {
+        var schema = Grey(100, 10);
+        schema.DataType = RawDataType.U16;
+        schema.Normalize = true;
+
+        // A smooth ramp from 0 to 999, so roughly the first and last twenty samples are the ones
+        // the stretch is meant to pin.
+        var values = new ushort[1000];
+        for (int i = 0; i < values.Length; i++)
+        {
+            values[i] = (ushort)i;
+        }
+
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(values), schema);
+        byte[] pixels = result.Frame!.Pixels;
+
+        Assert.Equal(0, pixels[0]);
+        Assert.Equal(255, pixels[^1]);
+
+        int black = pixels.Count(pixel => pixel == 0);
+        int white = pixels.Count(pixel => pixel == 255);
+
+        // A couple more than the twenty samples the 2% says, because the last step of the stretch
+        // drops the fraction of a grey level.
+        Assert.InRange(black, 18, 26);
+        Assert.InRange(white, 18, 26);
+
+        for (int i = 1; i < pixels.Length; i++)
+        {
+            Assert.True(pixels[i] >= pixels[i - 1], "the ramp should stay in order");
+        }
+    }
+
+    [Fact]
+    public void DoesNotDivideByZeroWhenEveryPixelIsTheSame()
+    {
+        var schema = Grey(4, 1);
+        schema.DataType = RawDataType.U16;
+        schema.Normalize = true;
+
+        RawDecodeResult result = RawImageDecoder.Decode(SixteenBit(700, 700, 700, 700), schema);
+
+        Assert.Equal(new byte[] { 0, 0, 0, 0 }, result.Frame!.Pixels);
+    }
+
+    [Fact]
     public void ReplacesWhiteSpeckleWithTheNeighbouringSample()
     {
         var schema = Grey(3, 3);

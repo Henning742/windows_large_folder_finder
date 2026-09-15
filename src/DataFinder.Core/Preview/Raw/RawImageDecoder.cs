@@ -104,26 +104,29 @@ public static class RawImageDecoder
     private static RawDecodeResult DecodeWide(byte[] bytes, RawSchema schema, int mask)
     {
         int count = schema.Width * schema.Height;
-        var values = new double[count];
 
+        // The values are whole numbers, so a histogram says everything the stretch needs to know -
+        // and it costs 256 KB instead of sorting half a million numbers on every decode.
+        var histogram = new int[mask + 1];
         for (int i = 0; i < count; i++)
         {
-            ushort raw = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2, 2));
-            values[i] = raw & mask;
+            histogram[BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2, 2)) & mask]++;
         }
 
         double low = 0d;
         double high = mask;
         if (schema.Normalize)
         {
-            (low, high) = PercentileRange(values, LowPercentile, HighPercentile);
+            low = Percentile(histogram, count, LowPercentile);
+            high = Percentile(histogram, count, HighPercentile);
         }
 
         double span = high - low;
         var plane = new byte[count];
         for (int i = 0; i < count; i++)
         {
-            double scaled = span <= 0d ? 0d : (Math.Clamp(values[i], low, high) - low) / span;
+            int value = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2, 2)) & mask;
+            double scaled = span <= 0d ? 0d : (Math.Clamp(value, low, high) - low) / span;
             plane[i] = (byte)(scaled * 255d);
         }
 
@@ -333,40 +336,65 @@ public static class RawImageDecoder
 
     private static int Wrap(int value, int size) => value < 0 ? value + size : value >= size ? value - size : value;
 
-    /// <summary>The 2% and 98% values of the frame, which the stretch is built from.</summary>
-    private static (double Low, double High) PercentileRange(double[] values, double lowPercent, double highPercent)
-    {
-        var sorted = (double[])values.Clone();
-        Array.Sort(sorted);
-        return (Percentile(sorted, lowPercent), Percentile(sorted, highPercent));
-    }
-
     /// <summary>
     /// The percentile with the interpolation the reference script's library uses, so a stretched
-    /// frame comes out the same shade of grey here as it does there.
+    /// frame comes out the same shade of grey here as it does there: the value that many percent of
+    /// the frame sits at or below, with the two values either side of it mixed in proportion.
     /// </summary>
-    private static double Percentile(double[] sorted, double percent)
+    private static double Percentile(int[] histogram, int count, double percent)
     {
-        if (sorted.Length == 0)
+        if (count <= 0)
         {
             return 0d;
         }
 
-        if (sorted.Length == 1)
+        if (count == 1)
         {
-            return sorted[0];
+            return LowestValue(histogram);
         }
 
-        double rank = (sorted.Length - 1) * percent / 100d;
+        double rank = (count - 1) * percent / 100d;
         int lower = (int)Math.Floor(rank);
         int upper = (int)Math.Ceiling(rank);
+
+        double low = ValueAt(histogram, lower);
         if (lower == upper)
         {
-            return sorted[lower];
+            return low;
         }
 
-        double weight = rank - lower;
-        return (sorted[lower] * (1d - weight)) + (sorted[upper] * weight);
+        double high = ValueAt(histogram, upper);
+        return low + ((rank - lower) * (high - low));
+    }
+
+    /// <summary>The value that many samples into the frame: the smallest value the count reaches.</summary>
+    private static double ValueAt(int[] histogram, int index)
+    {
+        int seen = 0;
+
+        for (int value = 0; value < histogram.Length; value++)
+        {
+            seen += histogram[value];
+            if (seen > index)
+            {
+                return value;
+            }
+        }
+
+        return histogram.Length - 1;
+    }
+
+    private static double LowestValue(int[] histogram)
+    {
+        for (int value = 0; value < histogram.Length; value++)
+        {
+            if (histogram[value] > 0)
+            {
+                return value;
+            }
+        }
+
+        return 0d;
     }
 
     /// <summary>
