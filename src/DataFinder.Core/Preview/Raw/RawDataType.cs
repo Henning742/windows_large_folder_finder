@@ -55,9 +55,6 @@ public static class RawDataTypes
         _ => 2,
     };
 
-    /// <summary>True for the layouts that hold more than one value per pixel.</summary>
-    public static bool IsColour(RawDataType dataType) => dataType is RawDataType.U8Rgb or RawDataType.YuvUyvy;
-
     /// <summary>
     /// True for the layouts that come out as grey levels, which are the ones that can be stretched
     /// to the full range. A colour picture is left alone: stretching it channel by channel would
