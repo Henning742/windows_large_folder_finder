@@ -4,11 +4,24 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DataFinder.Core.Models;
 using DataFinder.Core.Preview;
+using DataFinder.Core.Preview.Raw;
 using DataFinder.Core.Util;
 
 namespace DataFinder.App.Services;
 
 public sealed record PreviewResult(ImageSource? Image, string? Text, string? Message);
+
+/// <summary>
+/// One picture the decoder produced: which schematic drew it, at what size, and what it has to say
+/// about itself. A tile without a picture carries the reason instead, so "show them all at once"
+/// never hides a schematic that did not work.
+/// </summary>
+public sealed record DecodeTile(string Caption, string Detail, ImageSource? Image, string? Message)
+{
+    public bool HasImage => Image is not null;
+
+    public bool HasMessage => !string.IsNullOrEmpty(Message);
+}
 
 /// <summary>Loads an image thumbnail or a text snippet for the preview pane.</summary>
 public sealed class PreviewService
@@ -16,6 +29,61 @@ public sealed class PreviewService
     private const long MaxImageBytes = 256L * 1024 * 1024;
     private const int MaxTextBytes = 512 * 1024;
     private const int PreviewPixelWidth = 1600;
+
+    /// <summary>
+    /// Reads one data file through every schematic it is given, in the order they were listed. It
+    /// runs off the UI thread: a decode sorts a frame of 16 bit values, which takes a moment.
+    /// </summary>
+    public Task<IReadOnlyList<DecodeTile>> DecodeAsync(
+        string path,
+        IReadOnlyList<RawSchema> schemas,
+        CancellationToken cancellationToken) =>
+        Task.Run<IReadOnlyList<DecodeTile>>(
+            () =>
+            {
+                var tiles = new List<DecodeTile>(schemas.Count);
+                foreach (RawSchema schema in schemas)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    tiles.Add(DecodeOne(path, schema));
+                }
+
+                return tiles;
+            },
+            cancellationToken);
+
+    private static DecodeTile DecodeOne(string path, RawSchema schema)
+    {
+        RawDecodeResult result = RawFrameReader.Decode(path, schema);
+        if (result.Frame is not { } frame)
+        {
+            return new DecodeTile(schema.Name, schema.Description, null, result.Error ?? "The frame could not be read.");
+        }
+
+        return new DecodeTile(
+            schema.Name,
+            $"{frame.Width} x {frame.Height} - {schema.Description}",
+            ToImage(frame),
+            result.Warning);
+    }
+
+    /// <summary>Turns decoded pixels into something an Image control can draw.</summary>
+    private static ImageSource ToImage(RawFrame frame)
+    {
+        PixelFormat format = frame.Format == RawPixelFormat.Gray8 ? PixelFormats.Gray8 : PixelFormats.Bgra32;
+        var bitmap = BitmapSource.Create(
+            frame.Width,
+            frame.Height,
+            96d,
+            96d,
+            format,
+            null,
+            frame.Pixels,
+            frame.Stride);
+
+        bitmap.Freeze();
+        return bitmap;
+    }
 
     public async Task<PreviewResult> LoadAsync(FileEntry entry, CancellationToken cancellationToken)
     {

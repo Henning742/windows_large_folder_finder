@@ -1,0 +1,84 @@
+<Window x:Class="DataFinder.App.DecodeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Decode settings"
+        Width="720" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        ResizeMode="NoResize">
+
+  <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+  </Window.Resources>
+
+  <Grid Margin="14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <GroupBox Grid.Row="0" Header="File types to read as data" Padding="8">
+      <StackPanel>
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Left" Text="File suffixes" Style="{StaticResource FieldLabel}" />
+          <Button DockPanel.Dock="Right" Content="Restore defaults" Style="{StaticResource ToolbarButton}"
+                  MinWidth="0" Padding="8,2" Command="{Binding ResetExtensionsCommand}"
+                  ToolTip="Put the list back to .raw .bin .dat .data" />
+          <TextBox Text="{Binding ExtensionsText, UpdateSourceTrigger=PropertyChanged}"
+                   ToolTip="Separate the suffixes with a space, a comma or a semicolon. The dot may be left out." />
+        </DockPanel>
+
+        <TextBlock Text="{Binding ExtensionSummary}" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,0" />
+
+        <TextBlock Text="{Binding ExtensionsError}" Foreground="#B00020" TextWrapping="Wrap" Margin="0,4,0,0"
+                   Visibility="{Binding HasExtensionsError, Converter={StaticResource BoolToVisibility}}" />
+
+        <TextBlock Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,0"
+                   Text="Only files with one of these endings are handed to the decoder, and only when nothing else already knows the ending: pictures and text files keep their own preview." />
+      </StackPanel>
+    </GroupBox>
+
+    <GroupBox Grid.Row="1" Header="Data schematics" Padding="8" Margin="0,10,0,0">
+      <ListView ItemsSource="{Binding Schemas}" MinHeight="150" MaxHeight="260"
+                BorderBrush="#DDDDDD" BorderThickness="1"
+                ScrollViewer.VerticalScrollBarVisibility="Auto"
+                VirtualizingPanel.IsVirtualizing="True">
+        <ListView.ItemContainerStyle>
+          <Style TargetType="ListViewItem">
+            <Setter Property="ToolTip" Value="{Binding Description}" />
+          </Style>
+        </ListView.ItemContainerStyle>
+        <ListView.View>
+          <GridView>
+            <GridViewColumn Header="Name" Width="330" DisplayMemberBinding="{Binding Name}" />
+            <GridViewColumn Header="Frame" Width="110" DisplayMemberBinding="{Binding SizeText}" />
+            <GridViewColumn Header="Bytes per frame" Width="120" DisplayMemberBinding="{Binding FrameSizeText}" />
+            <GridViewColumn Header="Reads" Width="130">
+              <GridViewColumn.CellTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Description}" TextTrimming="CharacterEllipsis"
+                             ToolTip="{Binding Description}" />
+                </DataTemplate>
+              </GridViewColumn.CellTemplate>
+            </GridViewColumn>
+          </GridView>
+        </ListView.View>
+      </ListView>
+    </GroupBox>
+
+    <DockPanel Grid.Row="2" Margin="0,10,0,0">
+      <Button DockPanel.Dock="Left" Content="Restore the schematics that come with the app"
+              Style="{StaticResource ToolbarButton}" MinWidth="0" Padding="8,2"
+              Command="{Binding RestoreSchematicsCommand}" />
+    </DockPanel>
+
+    <TextBlock Grid.Row="3" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="#666666"
+               Text="The schematic a data file is read with is picked in the preview pane." />
+
+    <DockPanel Grid.Row="4" Margin="0,12,0,0" HorizontalAlignment="Right">
+      <Button Content="Close" Style="{StaticResource ToolbarButton}" MinWidth="90" IsDefault="True" IsCancel="True" />
+    </DockPanel>
+  </Grid>
+</Window>

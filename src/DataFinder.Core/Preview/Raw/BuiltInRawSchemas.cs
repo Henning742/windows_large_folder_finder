@@ -51,6 +51,15 @@ public static class BuiltInRawSchemas
         },
         new RawSchema
         {
+            // The shape a headerless 16 bit dump from an ordinary frame grabber usually has.
+            Name = "16 bit grayscale 640 x 480, stretched",
+            Width = 640,
+            Height = 480,
+            DataType = RawDataType.U16,
+            Normalize = true,
+        },
+        new RawSchema
+        {
             // The same frame without the stretch: it stays dark unless the data really does use the
             // whole 16 bit range.
             Name = "16 bit grayscale 640 x 512, as it is",

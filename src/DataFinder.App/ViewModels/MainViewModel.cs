@@ -8,6 +8,7 @@ using DataFinder.App.Services;
 using DataFinder.Core.Models;
 using DataFinder.Core.Ntfs;
 using DataFinder.Core.Preview;
+using DataFinder.Core.Preview.Raw;
 using DataFinder.Core.Results;
 using DataFinder.Core.Util;
 using DataFinder.Core.Volumes;
@@ -50,6 +51,9 @@ public sealed class MainViewModel : ObservableObject
     private ImageSource? _previewImage;
     private string _previewText = string.Empty;
     private string _previewMessage = "Select a folder on the left to see what is inside.";
+    private IReadOnlyList<RawSchema> _previewSchemas = Array.Empty<RawSchema>();
+    private RawSchema? _selectedPreviewSchema;
+    private bool _isTilePreviewVisible;
     private bool _isImagePreviewVisible;
     private bool _isTextPreviewVisible;
     private bool _isMessageVisible = true;
@@ -65,7 +69,10 @@ public sealed class MainViewModel : ObservableObject
     {
         _dialogs = dialogs;
         ScanSetup = new ScanDialogViewModel();
+        DecodeSetup = new DecodeDialogViewModel();
+        DecodeSetup.Changed += OnDecodeSettingsChanged;
         IsElevated = ElevationHelper.IsElevated();
+        RebuildPreviewSchemas();
 
         CancelCommand = new RelayCommand(CancelRunningWork, () => IsScanning);
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsScanning);
@@ -86,9 +93,18 @@ public sealed class MainViewModel : ObservableObject
     /// </summary>
     public ScanDialogViewModel ScanSetup { get; }
 
+    /// <summary>
+    /// The file suffixes and the data schematics the preview uses. It is kept here so the choices
+    /// survive the dialog being closed, and it is the same object the dialog edits.
+    /// </summary>
+    public DecodeDialogViewModel DecodeSetup { get; }
+
     public ObservableCollection<FolderResult> Results { get; } = new();
 
     public ObservableCollection<FileEntry> Contents { get; } = new();
+
+    /// <summary>The pictures of the selected data file, one per schematic that was asked for.</summary>
+    public ObservableCollection<DecodeTile> PreviewTiles { get; } = new();
 
     /// <summary>The choices of the "select a file on its own" drop down, in the order they are shown.</summary>
     public IReadOnlyList<AutoSelectOption> AutoSelectOptions { get; } = new[]
@@ -250,6 +266,31 @@ public sealed class MainViewModel : ObservableObject
         private set => SetProperty(ref _previewImage, value);
     }
 
+    /// <summary>The schematics the preview offers, in the order the dialog lists them.</summary>
+    public IReadOnlyList<RawSchema> PreviewSchemas
+    {
+        get => _previewSchemas;
+        private set => SetProperty(ref _previewSchemas, value);
+    }
+
+    /// <summary>The schematic a data file is read with. The first one is used until picked otherwise.</summary>
+    public RawSchema? SelectedPreviewSchema
+    {
+        get => _selectedPreviewSchema;
+        set
+        {
+            if (!SetProperty(ref _selectedPreviewSchema, value))
+            {
+                return;
+            }
+
+            if (SelectedContent is { PreviewKind: PreviewKind.Binary })
+            {
+                StartPreviewLoad();
+            }
+        }
+    }
+
     public string PreviewText
     {
         get => _previewText;
@@ -266,6 +307,13 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _isImagePreviewVisible;
         private set => SetProperty(ref _isImagePreviewVisible, value);
+    }
+
+    /// <summary>True while decoded pictures are on show instead of the plain image or text preview.</summary>
+    public bool IsTilePreviewVisible
+    {
+        get => _isTilePreviewVisible;
+        private set => SetProperty(ref _isTilePreviewVisible, value);
     }
 
     public bool IsTextPreviewVisible
@@ -863,7 +911,11 @@ public sealed class MainViewModel : ObservableObject
         ScanReport? report = ReportFor(ActiveFolderPath);
         if (report is not null && report.Aggregation.TryGetRecordNumber(ActiveFolderPath, out uint resolvedRecord))
         {
-            foreach (FileEntry entry in report.Index.GetChildren(report.Aggregation, resolvedRecord, ActiveFolderPath))
+            foreach (FileEntry entry in report.Index.GetChildren(
+                report.Aggregation,
+                resolvedRecord,
+                ActiveFolderPath,
+                DecodeSetup.Extensions))
             {
                 Contents.Add(entry);
             }
@@ -883,7 +935,10 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             StatusText = $"Reading {path}...";
-            IReadOnlyList<FileEntry> entries = await Task.Run(() => FileSystemListing.EnumerateChildren(path), cancellationToken);
+            IReadOnlyList<string> suffixes = DecodeSetup.Extensions;
+            IReadOnlyList<FileEntry> entries = await Task.Run(
+                () => FileSystemListing.EnumerateChildren(path, suffixes),
+                cancellationToken);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -951,12 +1006,65 @@ public sealed class MainViewModel : ObservableObject
 
         if (item.PreviewKind == PreviewKind.None)
         {
-            PreviewMessage = $"No preview for this file type. Size: {item.SizeText}.";
+            PreviewMessage = IsDecodableSuffix(item.Name)
+                ? $"No preview for this file type. Size: {item.SizeText}."
+                : $"No preview for this file type. Size: {item.SizeText}. Add its suffix under Decode settings to read it as a data file.";
+            return;
+        }
+
+        if (item.PreviewKind == PreviewKind.Binary)
+        {
+            _ = LoadDecodedAsync(item, cancellation.Token);
             return;
         }
 
         _ = LoadPreviewAsync(item, cancellation.Token);
     }
+
+    /// <summary>
+    /// Reads the selected data file with the schematic the preview pane is set to, and shows the
+    /// picture it came up with.
+    /// </summary>
+    private async Task LoadDecodedAsync(FileEntry item, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<RawSchema> schemas = SchemasForPreview();
+        if (schemas.Count == 0)
+        {
+            SetPreviewState(null, null, "There is no data schematic to read this file with. Open Decode settings to add one.");
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<DecodeTile> tiles = await _previewService.DecodeAsync(item.FullPath, schemas, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            SetPreviewState(tiles);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            SetPreviewState(null, null, exception.Message);
+        }
+    }
+
+    /// <summary>The schematics to read the selected file with, in the order they are drawn.</summary>
+    private IReadOnlyList<RawSchema> SchemasForPreview()
+    {
+        if (SelectedPreviewSchema is { } chosen)
+        {
+            return new[] { chosen };
+        }
+
+        return PreviewSchemas.Count > 0 ? new[] { PreviewSchemas[0] } : Array.Empty<RawSchema>();
+    }
+
+    private bool IsDecodableSuffix(string name) => RawFileTypes.Matches(DecodeSetup.Extensions, name);
 
     private async Task LoadPreviewAsync(FileEntry item, CancellationToken cancellationToken)
     {
@@ -985,9 +1093,79 @@ public sealed class MainViewModel : ObservableObject
         PreviewText = text ?? string.Empty;
         PreviewMessage = message ?? string.Empty;
 
+        PreviewTiles.Clear();
+        IsTilePreviewVisible = false;
         IsImagePreviewVisible = image is not null;
         IsTextPreviewVisible = !string.IsNullOrEmpty(text);
         IsMessageVisible = !IsImagePreviewVisible && !IsTextPreviewVisible;
+    }
+
+    /// <summary>Shows what the decoder drew, one tile per schematic, and nothing else.</summary>
+    private void SetPreviewState(IReadOnlyList<DecodeTile> tiles)
+    {
+        PreviewImage = null;
+        PreviewText = string.Empty;
+        PreviewMessage = string.Empty;
+
+        PreviewTiles.Clear();
+        foreach (DecodeTile tile in tiles)
+        {
+            PreviewTiles.Add(tile);
+        }
+
+        IsImagePreviewVisible = false;
+        IsTextPreviewVisible = false;
+        IsTilePreviewVisible = PreviewTiles.Count > 0;
+        IsMessageVisible = !IsTilePreviewVisible;
+    }
+
+    /// <summary>
+    /// Called when the decode settings change: the schematics on offer are read again, and the
+    /// files of the folder on screen are looked at again with the new list of suffixes.
+    /// </summary>
+    private void OnDecodeSettingsChanged()
+    {
+        RebuildPreviewSchemas();
+
+        if (ActiveFolderPath.Length == 0)
+        {
+            StartPreviewLoad();
+            return;
+        }
+
+        string? keep = SelectedContent?.FullPath;
+        var items = Contents.ToList();
+
+        Contents.Clear();
+        foreach (FileEntry entry in items)
+        {
+            if (!entry.IsDirectory)
+            {
+                entry.PreviewKind = PreviewClassifier.Classify(entry.Name, DecodeSetup.Extensions);
+            }
+
+            Contents.Add(entry);
+        }
+
+        if (keep is not null)
+        {
+            SelectedContent = Contents.FirstOrDefault(entry => string.Equals(entry.FullPath, keep, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // The list was rebuilt, so the preview is asked again whether or not the selection changed.
+        StartPreviewLoad();
+    }
+
+    /// <summary>Refreshes the drop down of schematics, keeping the chosen one when it is still there.</summary>
+    private void RebuildPreviewSchemas()
+    {
+        RawSchema? previous = SelectedPreviewSchema;
+        IReadOnlyList<RawSchema> schemas = DecodeSetup.UsableSchemas;
+
+        PreviewSchemas = schemas;
+        SelectedPreviewSchema = previous is not null && schemas.Contains(previous)
+            ? previous
+            : schemas.FirstOrDefault();
     }
 
     private void OpenActiveFolder() => ShellService.OpenFolder(ActiveFolderPath);

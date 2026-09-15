@@ -70,4 +70,14 @@ public partial class MainWindow : Window
         ViewModel.OpenSelectedResultFolder();
         e.Handled = true;
     }
+
+    /// <summary>
+    /// Opens the decode settings. They are edited where they live, so the preview follows along
+    /// while the dialog is open.
+    /// </summary>
+    private void DecodeSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new DecodeDialog(ViewModel.DecodeSetup) { Owner = this };
+        dialog.ShowDialog();
+    }
 }

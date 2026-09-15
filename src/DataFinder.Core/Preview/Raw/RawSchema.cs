@@ -189,4 +189,7 @@ public sealed class RawSchema
 
     /// <summary>The bytes one frame takes, in words, for the tool tip.</summary>
     public string FrameSizeText => ByteSize.Format(FrameBytes);
+
+    /// <summary>The same line as <see cref="Describe"/>, for the window to bind to.</summary>
+    public string Description => Describe();
 }

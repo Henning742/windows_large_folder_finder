@@ -18,7 +18,11 @@ public sealed class FileEntry
     /// <summary>For folders: how many items sit directly inside.</summary>
     public int DirectChildCount { get; init; }
 
-    public PreviewKind PreviewKind { get; init; } = PreviewKind.None;
+    /// <summary>
+    /// What kind of preview this item gets. It is settled when the folder is listed, and looked at
+    /// again in place when the list of data file suffixes changes.
+    /// </summary>
+    public PreviewKind PreviewKind { get; set; } = PreviewKind.None;
 
     /// <summary>What the type column says: a folder, a normal file, or one the decoder will read.</summary>
     public string TypeText => IsDirectory

@@ -222,17 +222,72 @@
 
         <Border Grid.Row="4" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Background="#FAFAFA">
           <Grid>
-            <Image Source="{Binding PreviewImage}" Stretch="Uniform" Margin="8"
-                   StretchDirection="DownOnly"
-                   Visibility="{Binding IsImagePreviewVisible, Converter={StaticResource BoolToVisibility}}" />
-            <TextBox Text="{Binding PreviewText, Mode=OneWay}" IsReadOnly="True"
-                     BorderThickness="0" Background="Transparent" Margin="6"
-                     FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" AcceptsReturn="True"
-                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                     Visibility="{Binding IsTextPreviewVisible, Converter={StaticResource BoolToVisibility}}" />
-            <TextBlock Text="{Binding PreviewMessage}" TextWrapping="Wrap" Margin="12"
-                       Foreground="#555555" VerticalAlignment="Top"
-                       Visibility="{Binding IsMessageVisible, Converter={StaticResource BoolToVisibility}}" />
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- How a data file is read, and where the rest of the decode settings live -->
+            <DockPanel Grid.Row="0" Margin="8,5,6,0">
+              <Button DockPanel.Dock="Right" Content="Decode settings..." Style="{StaticResource ToolbarButton}"
+                      MinWidth="0" Padding="8,2" Click="DecodeSettingsButton_Click"
+                      ToolTip="Which file types are read as data, and the schematics that are on offer" />
+              <TextBlock DockPanel.Dock="Left" Text="Preview" Style="{StaticResource PaneHeader}" />
+              <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="12,0,0,0">
+                <TextBlock Text="Schematic" Style="{StaticResource FieldLabel}" />
+                <ComboBox Width="240" VerticalAlignment="Center"
+                          ItemsSource="{Binding PreviewSchemas}"
+                          DisplayMemberPath="Name"
+                          SelectedItem="{Binding SelectedPreviewSchema}"
+                          ToolTip="{Binding SelectedPreviewSchema.Description}" />
+              </StackPanel>
+            </DockPanel>
+
+            <Grid Grid.Row="1">
+              <Image Source="{Binding PreviewImage}" Stretch="Uniform" Margin="8"
+                     StretchDirection="DownOnly"
+                     Visibility="{Binding IsImagePreviewVisible, Converter={StaticResource BoolToVisibility}}" />
+
+              <!-- One picture per schematic, so several ways of reading the same file can be compared -->
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                            Visibility="{Binding IsTilePreviewVisible, Converter={StaticResource BoolToVisibility}}">
+                <ItemsControl ItemsSource="{Binding PreviewTiles}" Margin="4">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Margin="4" Padding="5" CornerRadius="3" Background="White"
+                              BorderBrush="#DDDDDD" BorderThickness="1">
+                        <StackPanel MaxWidth="400">
+                          <TextBlock Text="{Binding Caption}" FontWeight="SemiBold"
+                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}" />
+                          <TextBlock Text="{Binding Detail}" Foreground="#666666" FontSize="11"
+                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
+                          <Image Source="{Binding Image}" MaxHeight="210" Margin="0,3,0,0"
+                                 Stretch="Uniform" StretchDirection="DownOnly"
+                                 Visibility="{Binding HasImage, Converter={StaticResource BoolToVisibility}}" />
+                          <TextBlock Text="{Binding Message}" Foreground="#B00020" TextWrapping="Wrap"
+                                     MaxWidth="390" Margin="0,3,0,0"
+                                     Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}" />
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+
+              <TextBox Text="{Binding PreviewText, Mode=OneWay}" IsReadOnly="True"
+                       BorderThickness="0" Background="Transparent" Margin="6"
+                       FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" AcceptsReturn="True"
+                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                       Visibility="{Binding IsTextPreviewVisible, Converter={StaticResource BoolToVisibility}}" />
+              <TextBlock Text="{Binding PreviewMessage}" TextWrapping="Wrap" Margin="12"
+                         Foreground="#555555" VerticalAlignment="Top"
+                         Visibility="{Binding IsMessageVisible, Converter={StaticResource BoolToVisibility}}" />
+            </Grid>
           </Grid>
         </Border>
       </Grid>
