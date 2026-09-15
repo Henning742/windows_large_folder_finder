@@ -25,16 +25,22 @@ daemon, no dependencies to install.
    the tree keeps its shape. Every folder has a triangle to expand or collapse it, and *Expand
    all* / *Collapse all* do the whole tree at once.
 4. Click one and its contents appear on the right; select a file to see a preview. Images are
-   shown inline, text files are shown as text, everything else shows its metadata. The app picks
-   that first file for you, so the pane is never empty: *On opening a folder, select* at the top
-   of the right pane chooses between the first file, the middle file, a random file, or nothing
-   at all. Folders are skipped when it picks, so you land on something with a preview.
-5. Type a note about a folder in the *Comment* box under the path. It shows up straight away in
+   shown inline, text files are shown as text, and a raw recording (`.dat`, `.raw`, `.bin` and
+   friends) is decoded into a picture - see *Reading data files*. Everything else shows its
+   metadata. The app picks that first file for you, so the pane is never empty: *On opening a
+   folder, select* at the top of the right pane chooses between the first file, the middle file, a
+   random file, or nothing at all. Folders are skipped when it picks, so you land on something
+   with a preview.
+5. A data file is read with the *schematic* chosen next to it: the frame size, the header in front
+   of each frame and the kind of numbers the pixels are. **Decode settings...** keeps that list of
+   schematics and the file suffixes to try them on. Tick *Show every ticked schematic at once* and
+   the file is drawn through all of them, side by side.
+6. Type a note about a folder in the *Comment* box under the path. It shows up straight away in
    the *Comment* column of the result list. A note only leaves the app when a report is written,
    so while any note has not been exported yet the window title says so and a small *not exported
    yet* marker sits next to the box. Starting a scan, importing a report, clearing the list and
    closing the app all ask first while that marker is up.
-6. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
+7. **Export** writes the list to a `.csv` file, with a small `.meta.json` file next to it that
    records the volumes, the rules and how the scan went. The notes are written to the CSV's
    comment column and the marker goes away. **Import** reads a report back, notes included.
 
@@ -159,6 +165,57 @@ no longer exists is kept in the list and marked `not found`.
 Reports written by older versions (one folder per line, text after `#` is a comment) are still
 readable; they simply have no notes.
 
+## Reading data files
+
+A recording - `.dat`, `.raw`, `.bin`, `.data` - is not a picture, it is numbers. To show it, the
+app has to be told how the numbers are laid out, and that is what a *schematic* is:
+
+| Setting | What it says |
+|---|---|
+| Frame size | How many pixels across and down one frame is, before cropping. |
+| Header | How many bytes sit in front of every frame and are not pixels. |
+| Data type | What the values are: 8 bit grey, 8 bit colour, 16 bit, 14 bits inside 16 bits, a 16 bit frame with a packed 8 bit picture on its right hand side, or packed UYVY colour. |
+| Stretch | For 16 bit data: pin the darkest 2% of the frame to black and the brightest 2% to white, which is what makes the picture visible at all. Untick it and the whole 16 bit range is spread over the greys, which is right when the signal really does fill it. |
+| Crop | Rows and columns to throw away, for the odd edge line some cameras add: `1,1,0,0`. |
+| Split column | Where the packed 8 bit part of a 16 bit frame starts. 0 means the middle. |
+| Frame to show | Which frame of the recording to look at. 0 is the first one. |
+| White speckle | Replace the white dots some cameras leave behind with the neighbouring sample. |
+
+**Decode settings...** in the preview pane holds both halves of it: the file suffixes the preview
+will try to decode, and the list of schematics. Suffixes are typed in freely - `.raw .bin` and
+`raw, bin` mean the same thing - and a suffix only takes effect when nothing else already knows
+the extension, so listing `.csv` by accident cannot take the text preview away from a CSV file.
+
+The schematics can be added to, changed, duplicated and removed, and the set that comes with the
+app can be brought back at any time. Those built-in ones are the recordings the reference scripts
+were written for:
+
+| Schematic | Layout |
+|---|---|
+| 8 bit grayscale 640 x 512 / 1280 x 720 | One byte per pixel, no header. |
+| 8 bit colour 1920 x 1080 | Three bytes per pixel, red green blue. |
+| 16 bit infrared 644 x 514, cropped | 16 bit grey, stretched, with `1,1,4,0` cropped off. |
+| 16 bit grayscale 640 x 480 / 640 x 512, stretched | The usual headerless 16 bit dump, stretched. |
+| 16 bit grayscale 640 x 512, as it is | The same, with the stretch off. |
+| 14 bit inside 16 bit 640 x 514 (64 byte header) | 16 bit values that only use their lower 14 bits. |
+| 16 bit + packed 8 bit 960 x 514 (64 byte header) | The wide recording: the 16 bit rows carry a packed 8 bit picture on their right hand side. |
+| Colour 1920 x 540 (UYVY) | Packed colour, with and without the white speckle filter. |
+
+Only one frame is read per look - the frame the schematic asks for - and it is read where it sits
+in the file, so a multi gigabyte recording opens as quickly as a small one. The picture is drawn
+at the size it comes out of the decoder; the pane fits it to the space available.
+
+Trying the schematics out one at a time meant going back to the dialog for every folder, so the
+preview pane has *Show every ticked schematic at once*. With it on, the file is read through every
+ticked schematic and the pictures are drawn side by side, each labelled with its name and size. A
+schematic that cannot read the file gets a tile of its own that says why - usually that the file is
+shorter than one frame of that size - so one glance says which schematics fit the recording.
+
+Two details differ from the reference Python script on purpose. Packed colour is converted with the
+ordinary BT.601 coefficients and the usual red, green, blue order; the script used a sign turned
+around in the green channel and left the colours in the order the data happened to be in. And its
+`resize` step is left out, because the preview scales the picture to the pane instead.
+
 ## What "size" means
 
 Two details are worth knowing, because they decide what shows up:
@@ -186,6 +243,9 @@ Two details are worth knowing, because they decide what shows up:
   of RAM per million files - and that is per scanned drive, since the tree of every drive that was
   scanned stays around so its folders can still be opened afterwards. Scan the drives one at a
   time if memory is tight; the result list and the report are the same either way.
+- Decoding is meant for looking, not for converting: one frame at a time, no files written, and a
+  schematic whose frame works out to more than 256 MB is refused rather than read. Showing ten
+  schematics at once costs about a fifth of a second on a 960 x 514 recording.
 
 ## Project layout
 
@@ -193,8 +253,9 @@ Two details are worth knowing, because they decide what shows up:
 |---|---|
 | `src/DataFinder.Core` | The scanning engine. Targets plain `net8.0` with no Windows-only code, so it builds and runs anywhere - including in the Linux CI job. |
 | `src/DataFinder.Core/Ntfs` | Boot sector, data run list decoding, MFT record parsing, the record reader and the folder tree. |
+| `src/DataFinder.Core/Preview/Raw` | The data file decoder: the schematics, the frame reader and the pixel conversions, plus the set of schematics that ships with the app. |
 | `src/DataFinder.Core/Results` | The report formats: the CSV that is written, the JSON file next to it, the older text list, and the tree the results are drawn as. |
-| `src/DataFinder.App` | The WPF windows (`net8.0-windows`) - the main window and the *Scan...* dialog - plus the view models and services. Deliberately thin: it displays what the core produces. |
+| `src/DataFinder.App` | The WPF windows (`net8.0-windows`) - the main window, the *Scan...* dialog and the *Decode settings* dialog - plus the view models and services. Deliberately thin: it displays what the core produces. |
 | `tests/DataFinder.Core.Tests` | xUnit tests, including a synthetic MFT record builder so the parser is tested without a real drive. |
 | `build.yml`, `app.manifest` | The CI workflow and the app manifest (unelevated start, per-monitor DPI, long path aware). |
 
@@ -204,11 +265,13 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-112 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+175 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
 `$FILE_NAME`, cycles, missing records), the folder tree and rule evaluation, the human readable
 size parser, the CSV and JSON report round trip (quoting, column lookup, the relative path between
 the two files), the tree that the results are drawn as, the choice of file to select on its own,
-and the estimate of how much longer a scan will take.
+the estimate of how much longer a scan will take, and the data file decoder: every layout, the
+stretch, the crop, the header and frame skipping, packed colour, the white speckle filter, the
+schematics the app ships with, and the list of file suffixes the preview decodes.
