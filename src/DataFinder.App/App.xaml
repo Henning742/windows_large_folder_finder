@@ -1,8 +1,12 @@
 <Application x:Class="DataFinder.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:infra="clr-namespace:DataFinder.App.Infrastructure"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
+
+    <infra:DepthToIndentConverter x:Key="DepthToIndent" />
+    <infra:BoolToHiddenVisibilityConverter x:Key="BoolToHiddenVisibility" />
 
     <Style x:Key="FieldLabel" TargetType="TextBlock">
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -20,6 +24,33 @@
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
+    <!-- The little triangle that expands and collapses a folder in the result tree. -->
+    <Style x:Key="TreeExpanderToggle" TargetType="ToggleButton">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
+      <Setter Property="Margin" Value="0,0,4,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Focusable" Value="False" />
+      <Setter Property="ToolTip" Value="Expand or collapse this folder" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ToggleButton">
+            <Border Background="Transparent" CornerRadius="2">
+              <TextBlock x:Name="Glyph" Text="&#x25B8;" FontSize="11" Foreground="#444444"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="Glyph" Property="Text" Value="&#x25BE;" />
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Glyph" Property="Foreground" Value="#0A66C2" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
   </Application.Resources>
 </Application>
-

@@ -13,7 +13,10 @@ daemon, no dependencies to install.
 2. Press **Scan**. The app reads the volume's master file table and applies two rules:
    - the folder is bigger than *N* MB (200 MB by default), and
    - more than *N* files sit **directly** inside it (200 by default).
-3. Matched folders appear in the left pane, sorted by size.
+3. Matched folders appear in the left pane as a folder tree, sorted by full path. Folders that
+   matched are in **bold**; the plain rows above them are the folders on the way there, shown so
+   the tree keeps its shape. Every folder has a triangle to expand or collapse it, and *Expand
+   all* / *Collapse all* do the whole tree at once.
 4. Click one and its contents appear on the right; select a file to see a preview. Images are
    shown inline, text files are shown as text, everything else shows its metadata.
 5. **Export** writes the list to a `.txt` file; **Import** reads one back.

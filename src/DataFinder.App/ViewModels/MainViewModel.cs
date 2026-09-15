@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using DataFinder.App.Infrastructure;
@@ -34,7 +33,9 @@ public sealed class MainViewModel : ObservableObject
     private bool _sizeIncludesSubfolders = true;
     private string? _validationMessage;
     private string _resultFilter = string.Empty;
-    private FolderResult? _selectedResult;
+    private IReadOnlyList<ResultTreeNode> _resultRoots = Array.Empty<ResultTreeNode>();
+    private IReadOnlyList<ResultTreeNode> _visibleResults = Array.Empty<ResultTreeNode>();
+    private ResultTreeNode? _selectedResultNode;
     private FileEntry? _selectedContent;
     private string _activeFolderPath = string.Empty;
     private ImageSource? _previewImage;
@@ -55,15 +56,14 @@ public sealed class MainViewModel : ObservableObject
         _dialogs = dialogs;
         IsElevated = ElevationHelper.IsElevated();
 
-        ResultsView = CollectionViewSource.GetDefaultView(Results);
-        ResultsView.Filter = MatchesFilter;
-
         RefreshVolumesCommand = new RelayCommand(RefreshVolumes, () => !IsScanning);
         ScanCommand = new AsyncRelayCommand(ScanAsync, () => !IsScanning && SelectedVolume is not null && !HasValidationMessage);
         CancelCommand = new RelayCommand(CancelRunningWork, () => IsScanning);
         ImportCommand = new AsyncRelayCommand(ImportAsync, () => !IsScanning);
         ExportCommand = new RelayCommand(ExportResults, () => Results.Count > 0);
         ClearResultsCommand = new RelayCommand(ClearResults, () => Results.Count > 0 && !IsScanning);
+        ExpandAllCommand = new RelayCommand(() => SetAllExpanded(true), () => VisibleResults.Count > 0);
+        CollapseAllCommand = new RelayCommand(() => SetAllExpanded(false), () => VisibleResults.Count > 0);
         OpenFolderCommand = new RelayCommand(OpenActiveFolder, () => ActiveFolderPath.Length > 0);
         OpenContentCommand = new RelayCommand(OpenSelectedContent, () => SelectedContent is not null);
         CopyPathCommand = new RelayCommand(CopyActivePath, () => ActiveFolderPath.Length > 0);
@@ -79,8 +79,6 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<FileEntry> Contents { get; } = new();
 
-    public ICollectionView ResultsView { get; }
-
     public RelayCommand RefreshVolumesCommand { get; }
 
     public AsyncRelayCommand ScanCommand { get; }
@@ -92,6 +90,10 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand ExportCommand { get; }
 
     public RelayCommand ClearResultsCommand { get; }
+
+    public RelayCommand ExpandAllCommand { get; }
+
+    public RelayCommand CollapseAllCommand { get; }
 
     public RelayCommand OpenFolderCommand { get; }
 
@@ -167,22 +169,42 @@ public sealed class MainViewModel : ObservableObject
         {
             if (SetProperty(ref _resultFilter, value))
             {
-                ResultsView.Refresh();
+                RebuildResultTree();
             }
         }
     }
 
-    public FolderResult? SelectedResult
+    /// <summary>
+    /// The rows of the result tree that are on screen right now: a collapsed folder hides the
+    /// folders below it, so this list is rebuilt whenever something is expanded or collapsed.
+    /// </summary>
+    public IReadOnlyList<ResultTreeNode> VisibleResults
     {
-        get => _selectedResult;
-        set
+        get => _visibleResults;
+        private set
         {
-            if (SetProperty(ref _selectedResult, value) && value is not null)
+            if (SetProperty(ref _visibleResults, value))
             {
-                ShowFolder(value.FullPath, value.RecordNumber);
+                CommandManager.InvalidateRequerySuggested();
             }
         }
     }
+
+    public ResultTreeNode? SelectedResultNode
+    {
+        get => _selectedResultNode;
+        set
+        {
+            if (SetProperty(ref _selectedResultNode, value) && value is not null)
+            {
+                OnPropertyChanged(nameof(HasSelectedFolder));
+                ShowFolder(value.FullPath, value.Result?.RecordNumber ?? 0);
+            }
+        }
+    }
+
+    /// <summary>True when the selected row stands for a folder that matched the rules.</summary>
+    public bool HasSelectedFolder => SelectedResultNode?.Result is not null;
 
     public FileEntry? SelectedContent
     {
@@ -340,6 +362,15 @@ public sealed class MainViewModel : ObservableObject
         ShellService.OpenFile(item.FullPath);
     }
 
+    /// <summary>Opens the folder of the selected result row, whether it matched the rules or not.</summary>
+    public void OpenSelectedResultFolder()
+    {
+        if (SelectedResultNode is { } node)
+        {
+            ShellService.OpenFolder(node.FullPath);
+        }
+    }
+
     private void RefreshVolumes()
     {
         VolumeInfo? previous = SelectedVolume;
@@ -377,6 +408,7 @@ public sealed class MainViewModel : ObservableObject
         IsScanning = true;
         ClearSession();
         Results.Clear();
+        RebuildResultTree();
         UpdateResultSummary();
         StatusText = "Opening the volume...";
         ProgressValue = 0;
@@ -399,6 +431,7 @@ public sealed class MainViewModel : ObservableObject
                 Results.Add(result);
             }
 
+            RebuildResultTree();
             UpdateResultSummary();
 
             if (report.MftReadCompleted)
@@ -416,11 +449,7 @@ public sealed class MainViewModel : ObservableObject
                 StatusText = "Scan finished, but the master file table could not be read in full - the results are incomplete.";
             }
 
-            if (Results.Count > 0)
-            {
-                SelectedResult = Results[0];
-            }
-            else
+            if (!SelectFirstMatchedFolder())
             {
                 ShowFolder(string.Empty, 0);
                 PreviewMessage = "No folder matched the rules. Raising the size or lowering the file count usually finds something.";
@@ -489,6 +518,7 @@ public sealed class MainViewModel : ObservableObject
         IsScanning = true;
         ClearSession();
         Results.Clear();
+        RebuildResultTree();
         UpdateResultSummary();
         ProgressValue = 0;
         StatusText = $"Reading {paths.Count:N0} folders...";
@@ -511,13 +541,11 @@ public sealed class MainViewModel : ObservableObject
                 Results.Add(result);
             }
 
+            RebuildResultTree();
             UpdateResultSummary();
             StatusText = $"Imported {Results.Count:N0} folders from {Path.GetFileName(file)}.";
 
-            if (Results.Count > 0)
-            {
-                SelectedResult = Results[0];
-            }
+            SelectFirstMatchedFolder();
         }
         catch (OperationCanceledException)
         {
@@ -565,7 +593,7 @@ public sealed class MainViewModel : ObservableObject
             progress?.Report(index + 1);
         }
 
-        results.Sort(static (left, right) => right.SizeBytes.CompareTo(left.SizeBytes));
+        results.Sort(static (left, right) => string.Compare(left.FullPath, right.FullPath, StringComparison.OrdinalIgnoreCase));
         return results;
     }
 
@@ -602,6 +630,7 @@ public sealed class MainViewModel : ObservableObject
     {
         Results.Clear();
         ClearSession();
+        RebuildResultTree();
         UpdateResultSummary();
         ShowFolder(string.Empty, 0);
         PreviewMessage = "Select a folder on the left to see what is inside.";
@@ -806,10 +835,67 @@ public sealed class MainViewModel : ObservableObject
     private bool TryBuildSettings(out ScanSettings settings, out string? error) =>
         ScanSettings.TryParse(MinSizeText, MinFileCountText, SizeIncludesSubfolders, out settings, out error);
 
-    private bool MatchesFilter(object item) =>
-        item is FolderResult result &&
-        (string.IsNullOrWhiteSpace(ResultFilter) ||
-         result.FullPath.Contains(ResultFilter, StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// Rebuilds the tree from the folders that pass the filter. A folder that matches keeps the
+    /// folders leading to it, so every row stays reachable from its drive.
+    /// </summary>
+    private void RebuildResultTree()
+    {
+        foreach (ResultTreeNode node in ResultTree.All(_resultRoots))
+        {
+            node.PropertyChanged -= OnResultNodeChanged;
+        }
+
+        string filter = ResultFilter.Trim();
+        IEnumerable<FolderResult> matching = filter.Length == 0
+            ? Results
+            : Results.Where(result => result.FullPath.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+        _resultRoots = ResultTree.Build(matching);
+
+        foreach (ResultTreeNode node in ResultTree.All(_resultRoots))
+        {
+            node.PropertyChanged += OnResultNodeChanged;
+        }
+
+        RefreshVisibleResults();
+    }
+
+    /// <summary>Refreshes the rows on screen after a folder was expanded or collapsed.</summary>
+    private void RefreshVisibleResults() => VisibleResults = ResultTree.Visible(_resultRoots);
+
+    private void OnResultNodeChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(ResultTreeNode.IsExpanded))
+        {
+            RefreshVisibleResults();
+        }
+    }
+
+    private void SetAllExpanded(bool expanded)
+    {
+        foreach (ResultTreeNode node in ResultTree.All(_resultRoots))
+        {
+            node.PropertyChanged -= OnResultNodeChanged;
+            node.IsExpanded = expanded;
+            node.PropertyChanged += OnResultNodeChanged;
+        }
+
+        RefreshVisibleResults();
+    }
+
+    /// <summary>Selects the first folder in path order that matched the rules.</summary>
+    private bool SelectFirstMatchedFolder()
+    {
+        ResultTreeNode? first = ResultTree.All(_resultRoots).FirstOrDefault(node => node.IsMatch);
+        if (first is null)
+        {
+            return false;
+        }
+
+        SelectedResultNode = first;
+        return true;
+    }
 
     private void UpdateResultSummary()
     {

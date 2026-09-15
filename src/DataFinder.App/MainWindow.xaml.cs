@@ -38,13 +38,12 @@ public partial class MainWindow : Window
 
     private void ResultsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (ViewModel.SelectedResult is null)
+        if (ViewModel.SelectedResultNode is null)
         {
             return;
         }
 
-        ShellService.OpenFolder(ViewModel.SelectedResult.FullPath);
+        ViewModel.OpenSelectedResultFolder();
         e.Handled = true;
     }
 }
-

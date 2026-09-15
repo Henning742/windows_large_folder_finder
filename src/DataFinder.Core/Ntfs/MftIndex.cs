@@ -142,7 +142,9 @@ public sealed class MftIndex
             warnings.Add($"{orphanDirectories:N0} folders were skipped because their parent chain is not reachable from the volume root.");
         }
 
-        results.Sort(static (left, right) => right.SizeBytes.CompareTo(left.SizeBytes));
+        // Sorted by path rather than by size: the result list is read as a folder tree, so the
+        // order has to match the tree the paths produce.
+        results.Sort(static (left, right) => string.Compare(left.FullPath, right.FullPath, StringComparison.OrdinalIgnoreCase));
         return new AggregationResult(results, stats, pathToRecord, warnings, rootFound: true, orphanDirectories);
     }
 

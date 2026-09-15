@@ -122,15 +122,22 @@
 
         <DockPanel Grid.Row="1" Margin="0,10,0,4">
           <TextBlock DockPanel.Dock="Left" Text="Results" Style="{StaticResource PaneHeader}" />
-          <TextBlock DockPanel.Dock="Right" Text="{Binding ResultSummary}" Foreground="#666666" VerticalAlignment="Center" />
+          <TextBlock DockPanel.Dock="Right" Text="{Binding ResultSummary}" Foreground="#666666"
+                     VerticalAlignment="Center" Margin="8,0,0,0" />
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+            <Button Content="Expand all" Style="{StaticResource ToolbarButton}" MinWidth="0" Padding="6,2"
+                    Command="{Binding ExpandAllCommand}" ToolTip="Show every folder in the tree" />
+            <Button Content="Collapse all" Style="{StaticResource ToolbarButton}" MinWidth="0" Padding="6,2"
+                    Command="{Binding CollapseAllCommand}" ToolTip="Hide everything below the drives" />
+          </StackPanel>
           <TextBox Margin="12,0,12,0" VerticalAlignment="Center"
                    Text="{Binding ResultFilter, UpdateSourceTrigger=PropertyChanged}"
                    ToolTip="Show only folders whose path contains this text" />
         </DockPanel>
 
         <ListView x:Name="ResultsList" Grid.Row="2"
-                  ItemsSource="{Binding ResultsView}"
-                  SelectedItem="{Binding SelectedResult}"
+                  ItemsSource="{Binding VisibleResults}"
+                  SelectedItem="{Binding SelectedResultNode}"
                   MouseDoubleClick="ResultsList_MouseDoubleClick"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                   VirtualizingPanel.IsVirtualizing="True"
@@ -142,16 +149,33 @@
           </ListView.ItemContainerStyle>
           <ListView.View>
             <GridView>
-              <GridViewColumn Header="Folder" Width="248">
+              <GridViewColumn Header="Folder" Width="250">
                 <GridViewColumn.CellTemplate>
                   <DataTemplate>
-                    <TextBlock Text="{Binding FullPath}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                    <StackPanel Orientation="Horizontal" Margin="{Binding Depth, Converter={StaticResource DepthToIndent}}">
+                      <ToggleButton Style="{StaticResource TreeExpanderToggle}"
+                                    IsChecked="{Binding IsExpanded, Mode=TwoWay}"
+                                    Visibility="{Binding HasChildren, Converter={StaticResource BoolToHiddenVisibility}}" />
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DetailText}">
+                        <TextBlock.Style>
+                          <Style TargetType="TextBlock">
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding IsMatch}" Value="False">
+                                <Setter Property="FontWeight" Value="Normal" />
+                                <Setter Property="Foreground" Value="#777777" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </TextBlock.Style>
+                      </TextBlock>
+                    </StackPanel>
                   </DataTemplate>
                 </GridViewColumn.CellTemplate>
               </GridViewColumn>
-              <GridViewColumn Header="Size" Width="80" DisplayMemberBinding="{Binding SizeText}" />
-              <GridViewColumn Header="Files" Width="56" DisplayMemberBinding="{Binding FilesText}" />
-              <GridViewColumn Header="Subdirs" Width="60" DisplayMemberBinding="{Binding SubfolderText}" />
+              <GridViewColumn Header="Size" Width="78" DisplayMemberBinding="{Binding SizeText}" />
+              <GridViewColumn Header="Files" Width="54" DisplayMemberBinding="{Binding FilesText}" />
+              <GridViewColumn Header="Subdirs" Width="58" DisplayMemberBinding="{Binding SubfolderText}" />
             </GridView>
           </ListView.View>
         </ListView>
