@@ -378,13 +378,15 @@
                           Background="#FAFBFC" BorderBrush="#E3E6EA" BorderThickness="1">
                     <Grid>
                       <Grid.RowDefinitions>
-                        <RowDefinition Height="22" />
+                        <!-- The row with the name holds the button as well, so its height comes from
+                             the two of them - the same on every card. -->
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="16" />
                         <RowDefinition Height="20" />
                         <RowDefinition Height="20" />
                         <!-- The row of pictures keeps its height whether a folder has any yet, which
                              is what makes every card the same height from the moment it goes up. -->
-                        <RowDefinition Height="180" />
+                        <RowDefinition Height="196" />
                         <RowDefinition Height="18" />
                       </Grid.RowDefinitions>
 
