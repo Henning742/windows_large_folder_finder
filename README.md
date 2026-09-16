@@ -191,10 +191,15 @@ somebody else - or to a later version of yourself - and the question is still th
 answers: *which of these folders is worth a look inside?*
 
 The page is small, because the pictures are not carried inside it. Every thumbnail is written as a
-file of its own in a `<page name>.files` folder next to the page, and the page points at it, so a
-report over hundreds of folders opens as quickly as a report over three. Copy the page and that
-folder together to send the report on; opening the page on its own still shows every folder, size
-and note, with the places for the pictures left empty.
+file of its own in a `<page name>.files` folder next to the page, and the page points at it. Copy
+the page and that folder together to send the report on; opening the page on its own still shows
+every folder, size and note, with the places for the pictures left empty.
+
+The pictures are asked for as they are come to, not all at once. The page carries the size of every
+thumbnail and asks for the file behind it when its row comes within a screen or so, so a report over
+six hundred folders reads the few dozen pictures being looked at and not the two thousand that are
+not - opening it costs about what opening the first screen of it costs. Asking for a picture that
+way takes a script; the folders, their sizes and their notes are drawn without one.
 
 The page is a tree of every row on the left and a section per folder that matched on the right:
 
@@ -204,6 +209,10 @@ The page is a tree of every row on the left and a section per folder that matche
   folder with something in it.
 - Each section says the full path, the size, the file counts and the note you typed, and shows a
   few pictures of what is inside.
+- Each folder is one row of pictures, as wide as the window and scrolling sideways when there are
+  more pictures than the width takes. Every folder is the same height, whatever it holds, so the
+  scroll bar says where the reader is from the moment the page opens and stays there while the
+  pictures arrive.
 - Everything folds away: the sections, and the branches of the tree itself. *Expand all* and
   *Collapse all* at the top do the lot.
 

@@ -140,7 +140,7 @@ public sealed class HtmlReportBuilder
         }
 
         return new HtmlReportBuildResult(
-            HtmlReport.Build(generatedAt, folders, reportOptions),
+            HtmlReport.Build(generatedAt, folders, reportOptions, names.Folder),
             matches.Count,
             finder.Pictures,
             finder.LeftOut,
@@ -170,6 +170,9 @@ public sealed class HtmlReportBuilder
         private int _count;
 
         public PictureNames(string folder) => _folder = SafeFolder(folder);
+
+        /// <summary>The folder the pictures go in, which is the name the page points the reader at.</summary>
+        public string Folder => _folder;
 
         public string Next(string caption, string mimeType)
         {

@@ -72,8 +72,8 @@ public sealed class HtmlReportTests
                     images: new[] { new HtmlReportPicture("shot.png", "report.files/0001-shot.png", "120 KB, a picture") }),
             });
 
-        Assert.Contains("src=\"report.files/0001-shot.png\"", html, StringComparison.Ordinal);
-        Assert.Contains("<figcaption><span class=\"file\">shot.png</span>", html, StringComparison.Ordinal);
+        Assert.Contains("data-src=\"report.files/0001-shot.png\"", html, StringComparison.Ordinal);
+        Assert.Contains("<figcaption><span class=\"file\" title=\"shot.png\">shot.png</span>", html, StringComparison.Ordinal);
         Assert.Contains("120 KB, a picture", html, StringComparison.Ordinal);
 
         // Nothing is carried inside the page: a report over hundreds of folders would be too big.
@@ -100,6 +100,94 @@ public sealed class HtmlReportTests
 
         Assert.Contains("not found", html, StringComparison.Ordinal);
         Assert.Contains("The folder is not there any more", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GivesEveryFolderTheSameHeightWhicheverItHolds()
+    {
+        string html = HtmlReport.Build(
+            Written,
+            new[]
+            {
+                Match(@"D:\data\set1", "set1", 0, 1024, comment: "a note"),
+                Match(
+                    @"D:\data\set2",
+                    "set2",
+                    0,
+                    2048,
+                    images: new[] { new HtmlReportPicture("shot.png", "report.files/0001-shot.png") },
+                    picturesNote: "Showing 1 of the 20 pictures and recordings here, picked at random."),
+            });
+
+        // Both folders are written with the same rows: the note and the line about the pictures are
+        // there whether they hold anything or not, so neither folder is a line taller than the other.
+        Assert.Equal(2, Count(html, "<p class=\"counts\""));
+        Assert.Equal(2, Count(html, "<p class=\"comment\""));
+        Assert.Equal(2, Count(html, "<div class=\"shots\">"));
+        Assert.Equal(2, Count(html, "<p class=\"hint\""));
+
+        // The one without a note has an empty note row rather than none at all.
+        Assert.Contains("<p class=\"comment\" title=\"a note\"><span class=\"label\">Note:</span> a note</p>", html, StringComparison.Ordinal);
+        Assert.Contains("<p class=\"comment\"></p>", html, StringComparison.Ordinal);
+
+        // And the row of pictures is one row of one height, whether it is empty or not.
+        Assert.Contains("section.folder .comment:empty, section.folder .hint:empty { visibility: hidden; }", html, StringComparison.Ordinal);
+        Assert.Contains("section.folder .hint { margin: 0 14px; min-height: 1.45em; }", html, StringComparison.Ordinal);
+        Assert.Contains("section.folder details { padding-bottom: 10px; }", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HasEachFolderScrollItsPicturesSidewaysRatherThanWrapThem()
+    {
+        string html = HtmlReport.Build(
+            Written,
+            new[]
+            {
+                Match(
+                    @"D:\data\set1",
+                    "set1",
+                    0,
+                    1024,
+                    images: Enumerable.Range(0, 12)
+                        .Select(index => new HtmlReportPicture($"shot{index:00}.png", $"report.files/{index:0000}-shot{index:00}.png"))
+                        .ToArray()),
+            });
+
+        Assert.Contains(".thumbs { display: flex; flex-wrap: nowrap; gap: 10px; height: 100%; overflow-x: auto;", html, StringComparison.Ordinal);
+        Assert.Contains("figure { margin: 0; flex: 0 0 auto; width: 220px;", html, StringComparison.Ordinal);
+
+        // All twelve are in the one row: nothing is left to a second line.
+        Assert.Equal(12, Count(html, "<figure>"));
+    }
+
+    [Fact]
+    public void LetsTheBrowserFetchAPictureOnlyWhenItComesNearTheScreen()
+    {
+        string html = HtmlReport.Build(
+            Written,
+            new[]
+            {
+                Match(
+                    @"D:\data\set1",
+                    "set1",
+                    0,
+                    1024,
+                    images: new[] { new HtmlReportPicture("shot.png", "report.files/0001-shot.png") }),
+            },
+            pictureFolder: "report.files");
+
+        // The size of the box is in the page, and the picture is not asked for until the script
+        // sees it come near the screen.
+        Assert.Contains("width=\"220\" height=\"140\" decoding=\"async\" data-src=\"report.files/0001-shot.png\"", html, StringComparison.Ordinal);
+        Assert.Contains("new IntersectionObserver", html, StringComparison.Ordinal);
+        Assert.Contains("rootMargin: '800px 600px'", html, StringComparison.Ordinal);
+
+        // The page says where the pictures are, so whoever the report is sent to knows the two go
+        // together - and that they arrive as the page is read.
+        Assert.Contains("The pictures sit in the <strong>report.files</strong> folder beside this page", html, StringComparison.Ordinal);
+
+        // And a reader without scripts is told why the places for the pictures are empty.
+        Assert.Contains("<noscript>", html, StringComparison.Ordinal);
     }
 
     [Fact]

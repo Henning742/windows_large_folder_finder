@@ -75,6 +75,12 @@ public sealed class HtmlReportBuilderTests : IDisposable
         // The number in front is what keeps two folders' pictures of the same name apart.
         Assert.Equal(result.Files.Count, result.Files.Select(file => file.RelativePath).Distinct().Count());
         Assert.Equal(result.Files.Count, result.Files.Select(file => file.RelativePath.Split('/')[^1][..4]).Distinct().Count());
+
+        // And the page says where they went, so the reader knows the two travel together.
+        Assert.Contains(
+            "The pictures sit in the <strong>My report.files</strong> folder beside this page",
+            result.Html,
+            StringComparison.Ordinal);
     }
 
     [Fact]

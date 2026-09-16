@@ -76,17 +76,21 @@ public sealed class HtmlReportOptions
 }
 
 /// <summary>
-/// Writes the whole result list out as one stand-alone HTML page: a tree of every folder on the
-/// left, and the folders that matched on the right with a few thumbnails of what is inside them.
-/// The pictures travel inside the file, so it can be sent on or opened years later and still show
-/// them.
+/// Writes the whole result list out as one HTML page: a tree of every folder on the left, and the
+/// folders that matched on the right with a few thumbnails of what is inside them.
+///
+/// The pictures are written beside the page as files of their own rather than carried inside it,
+/// and the page asks the browser for one only when it comes near the screen. That is what keeps a
+/// report over a thousand folders opening as quickly as a report over three, and it is why there is
+/// no size a report has to stay under: the page is a list of names until somebody looks at it.
 /// </summary>
 public static class HtmlReport
 {
     public static string Build(
         DateTimeOffset generatedAt,
         IReadOnlyList<HtmlReportFolder> folders,
-        HtmlReportOptions? options = null)
+        HtmlReportOptions? options = null,
+        string? pictureFolder = null)
     {
         ArgumentNullException.ThrowIfNull(folders);
         options ??= new HtmlReportOptions();
@@ -105,7 +109,7 @@ public static class HtmlReport
         page.AppendLine("</head>");
         page.AppendLine("<body>");
 
-        WriteHeader(page, folders, options, generatedAt, topLevelSize, matches);
+        WriteHeader(page, folders, options, generatedAt, topLevelSize, matches, pictureFolder);
 
         page.AppendLine("<div class=\"page\">");
         WriteContents(page, folders);
@@ -129,12 +133,13 @@ public static class HtmlReport
         DateTimeOffset generatedAt,
         IReadOnlyList<HtmlReportFolder> folders,
         HtmlReportOptions? options = null,
-        IReadOnlyList<HtmlReportFile>? pictures = null)
+        IReadOnlyList<HtmlReportFile>? pictures = null,
+        string? pictureFolder = null)
     {
         // The pictures go first: a page that points at files which were never written is worse than
         // no page at all.
         WritePictures(path, pictures);
-        File.WriteAllText(path, Build(generatedAt, folders, options), new UTF8Encoding(true));
+        File.WriteAllText(path, Build(generatedAt, folders, options, pictureFolder), new UTF8Encoding(true));
     }
 
     /// <summary>
@@ -178,7 +183,8 @@ public static class HtmlReport
         HtmlReportOptions options,
         DateTimeOffset generatedAt,
         long topLevelSize,
-        int matches)
+        int matches,
+        string? pictureFolder)
     {
         page.AppendLine("<header>");
         page.Append("<h1>").Append(Escape(options.Title)).AppendLine("</h1>");
@@ -197,6 +203,23 @@ public static class HtmlReport
         if (!string.IsNullOrWhiteSpace(options.Warning))
         {
             page.Append("<p class=\"warning\">").Append(Escape(options.Warning!)).AppendLine("</p>");
+        }
+
+        // Where the pictures are, said once at the top: the page is a folder of files that travel
+        // together with it, and the arrangement is worth knowing before the page is sent on.
+        if (!string.IsNullOrWhiteSpace(pictureFolder) && folders.Any(folder => folder.Images.Count > 0))
+        {
+            page.Append("<p class=\"where\">The pictures sit in the <strong>")
+                .Append(Escape(pictureFolder!))
+                .AppendLine("</strong> folder beside this page; copy the two together, and they load as you scroll.</p>");
+
+            // The pictures are asked for as they come near the screen, which takes a script. Without
+            // one the folders, sizes and notes are all still there; only the pictures are not.
+            page.Append("<noscript><p class=\"warning\">The pictures are asked for as you come to them, " +
+                        "which needs JavaScript turned on. The folders, their sizes and their notes are all " +
+                        "below either way, and the pictures themselves are in the <strong>")
+                .Append(Escape(pictureFolder!))
+                .AppendLine("</strong> folder beside this page.</p></noscript>");
         }
 
         page.AppendLine(
@@ -362,21 +385,36 @@ public static class HtmlReport
             page.Append("<section class=\"folder\" id=\"f").Append(section).AppendLine("\">");
             page.AppendLine("<details open>");
             page.AppendLine("<summary><span class=\"twisty\" aria-hidden=\"true\"></span>");
-            page.Append("<span class=\"name\">").Append(Escape(folder.FullPath)).Append("</span>");
+            page.Append("<span class=\"name\" title=\"").Append(Escape(folder.FullPath)).Append("\">")
+                .Append(Escape(folder.FullPath)).Append("</span>");
             page.Append("<span class=\"size\">");
             page.Append(folder.Exists ? ByteSize.Format(folder.SizeBytes) : "not found");
             page.AppendLine("</span>");
             page.AppendLine("</summary>");
 
-            page.Append("<p class=\"counts\">").Append(Counts(folder)).AppendLine("</p>");
+            page.Append("<p class=\"counts\" title=\"").Append(Escape(Counts(folder))).Append("\">")
+                .Append(Counts(folder)).AppendLine("</p>");
+
+            // The note and the line about the pictures are written whether they hold anything or
+            // not: a row that is there in every folder is what makes every folder the same height.
+            page.Append("<p class=\"comment\"");
 
             if (!string.IsNullOrWhiteSpace(folder.Comment))
             {
-                page.Append("<p class=\"comment\"><span class=\"label\">Note:</span> ")
-                    .Append(Escape(folder.Comment)).AppendLine("</p>");
+                page.Append(" title=\"").Append(Escape(folder.Comment)).Append('"');
             }
 
+            page.Append('>');
+
+            if (!string.IsNullOrWhiteSpace(folder.Comment))
+            {
+                page.Append("<span class=\"label\">Note:</span> ").Append(Escape(folder.Comment));
+            }
+
+            page.AppendLine("</p>");
+
             WritePictures(page, folder);
+            WritePicturesNote(page, folder);
 
             page.AppendLine("</details>");
             page.AppendLine("</section>");
@@ -392,9 +430,14 @@ public static class HtmlReport
 
     private static void WritePictures(StringBuilder page, HtmlReportFolder folder)
     {
+        // One box for the pictures whether there are any or not, so a folder with nothing to show
+        // is the same height as one with a row of thumbnails in it.
+        page.AppendLine("<div class=\"shots\">");
+
         if (!folder.Exists)
         {
             page.AppendLine("<p class=\"empty\">The folder is not there any more, so there is nothing to show.</p>");
+            page.AppendLine("</div>");
             return;
         }
 
@@ -403,6 +446,7 @@ public static class HtmlReport
             page.Append("<p class=\"empty\">")
                 .Append(Escape(folder.PicturesNote ?? "Nothing in this folder could be shown as a picture."))
                 .AppendLine("</p>");
+            page.AppendLine("</div>");
             return;
         }
 
@@ -411,13 +455,23 @@ public static class HtmlReport
         foreach (HtmlReportPicture image in folder.Images)
         {
             page.AppendLine("<figure>");
-            page.Append("<img alt=\"").Append(Escape(image.Caption)).Append("\" loading=\"lazy\" decoding=\"async\" src=\"")
+            // The size of the box is written into the page, so the folder is the height it is going
+            // to be before the picture arrives - and the picture is left in the data-src until the
+            // script at the foot of the page sees it come near the screen.
+            page.Append("<img alt=\"").Append(Escape(image.Caption))
+                .Append("\" width=\"220\" height=\"140\" decoding=\"async\" data-src=\"")
                 .Append(Escape(image.Source)).AppendLine("\">");
-            page.Append("<figcaption><span class=\"file\">").Append(Escape(image.Caption)).Append("</span>");
+            page.Append("<figcaption><span class=\"file\" title=\"").Append(Escape(image.Caption)).Append("\">")
+                .Append(Escape(image.Caption)).Append("</span>");
 
             if (!string.IsNullOrWhiteSpace(image.Note))
             {
-                page.Append("<span class=\"detail\">").Append(Escape(image.Note!)).Append("</span>");
+                page.Append("<span class=\"detail\" title=\"").Append(Escape(image.Note!)).Append("\">")
+                    .Append(Escape(image.Note!)).Append("</span>");
+            }
+            else
+            {
+                page.Append("<span class=\"detail\"></span>");
             }
 
             page.AppendLine("</figcaption>");
@@ -425,11 +479,24 @@ public static class HtmlReport
         }
 
         page.AppendLine("</div>");
+        page.AppendLine("</div>");
+    }
 
-        if (!string.IsNullOrWhiteSpace(folder.PicturesNote))
+    /// <summary>
+    /// The line under the pictures: how many of how many were shown, and whether the report was
+    /// full. It is written whether it holds anything or not, so that every folder is the same
+    /// height - a folder that says something here is exactly as tall as one that does not.
+    /// </summary>
+    private static void WritePicturesNote(StringBuilder page, HtmlReportFolder folder)
+    {
+        if (folder.Images.Count == 0 || string.IsNullOrWhiteSpace(folder.PicturesNote))
         {
-            page.Append("<p class=\"hint\">").Append(Escape(folder.PicturesNote!)).AppendLine("</p>");
+            page.AppendLine("<p class=\"hint\"></p>");
+            return;
         }
+
+        page.Append("<p class=\"hint\" title=\"").Append(Escape(folder.PicturesNote!)).Append("\">")
+            .Append(Escape(folder.PicturesNote!)).AppendLine("</p>");
     }
 
     private static string Counts(HtmlReportFolder folder)
@@ -551,26 +618,56 @@ public static class HtmlReport
           details[open] > summary .twisty::before { content: "\25BC"; }
 
           main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+          /* The folders. Every one of them is the same height - one line per note, and a row of
+             pictures that is one row whatever it holds - so the page is the height it is going to
+             be from the start, and the scroll bar does not move as the pictures arrive. */
           section.folder { background: #ffffff; border: 1px solid #dcdfe4; border-radius: 6px; }
           section.folder details > summary { cursor: pointer; padding: 10px 14px; display: grid;
                                              grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 10px;
                                              align-items: baseline; list-style: none; }
           section.folder details > summary::-webkit-details-marker { display: none; }
-          section.folder summary .name { font-weight: 600; word-break: break-all; }
+          section.folder summary .name { font-weight: 600; white-space: nowrap; overflow: hidden;
+                                         text-overflow: ellipsis; }
           section.folder summary .size { color: #0a66c2; font-variant-numeric: tabular-nums; white-space: nowrap; }
-          section.folder .counts, section.folder .comment, section.folder .empty,
-          section.folder .hint { margin: 0 14px 10px; color: #4b5563; }
-          section.folder .comment { background: #fff8e1; border: 1px solid #f0e0b0; border-radius: 4px; padding: 6px 8px; }
+
+          /* One line each, whatever they hold: the whole of it is in the tooltip, and the folder is
+             the height it was. The least height is set rather than left to the text, so that a row
+             with nothing in it is the same height as a row with something - which is what makes a
+             folder with no note exactly as tall as one with a note. */
+          section.folder .counts, section.folder .comment, section.folder .hint {
+                                 color: #4b5563; white-space: nowrap; overflow: hidden;
+                                 text-overflow: ellipsis; }
+          section.folder .counts { margin: 0 14px 10px; min-height: 1.45em; }
+          section.folder .comment { margin: 0 14px 10px; min-height: calc(1.45em + 12px);
+                                    background: #fff8e1; border: 1px solid #f0e0b0; border-radius: 4px;
+                                    padding: 5px 8px; }
+          section.folder .hint { margin: 0 14px; min-height: 1.45em; }
+          section.folder .comment:empty, section.folder .hint:empty { visibility: hidden; }
           section.folder .label { font-weight: 600; color: #6b7280; }
           section.folder :target { outline: none; }
-          .thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 14px 12px; }
-          figure { margin: 0; width: 220px; background: #fafbfc; border: 1px solid #e3e6ea; border-radius: 5px;
-                   padding: 5px; }
+
+          /* The room under the last row is padding rather than a margin: a margin there is the one
+             thing that could step outside the folder and leave it a different height from the rest. */
+          section.folder details { padding-bottom: 10px; }
+
+          /* The row of pictures: one line, as wide as the folder, scrolling sideways when there are
+             more pictures than the width takes. One row is one height, whether it holds one picture
+             or twenty. */
+          .shots { margin: 0 14px 10px; height: 212px; }
+          .thumbs { display: flex; flex-wrap: nowrap; gap: 10px; height: 100%; overflow-x: auto;
+                    overflow-y: hidden; align-items: flex-start; padding-bottom: 4px; }
+          .shots .empty { margin: 0; color: #4b5563; }
+          figure { margin: 0; flex: 0 0 auto; width: 220px; background: #fafbfc; border: 1px solid #e3e6ea;
+                   border-radius: 5px; padding: 5px; }
+          /* A picture that has not been asked for yet is a dark box of the size it will be, with no
+             line of text in it: the folder is the height it is going to have all along. */
           figure img { display: block; width: 100%; height: 140px; object-fit: contain; background: #111;
-                       border-radius: 3px; }
+                       border-radius: 3px; color: transparent; }
           figcaption { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
-          figcaption .file { font-size: 12px; word-break: break-all; }
-          figcaption .detail { font-size: 11px; color: #6b7280; }
+          figcaption .file { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          figcaption .detail { font-size: 11px; color: #6b7280; white-space: nowrap; overflow: hidden;
+                               text-overflow: ellipsis; }
           section.folder:target { border-color: #0a66c2; box-shadow: 0 0 0 2px rgba(10,102,194,.15); }
           @media (max-width: 900px) { .page { grid-template-columns: 1fr; } .splitter { display: none; }
                                       nav { position: static; max-height: none; } }
@@ -583,6 +680,41 @@ public static class HtmlReport
             var sections = Array.prototype.slice.call(
               document.querySelectorAll('section.folder details, nav details'));
             var rows = Array.prototype.slice.call(document.querySelectorAll('ul.tree a.row'));
+
+            // The pictures. A report over hundreds of folders has thousands of them, and asking a
+            // browser for all of them at once costs the reading of every one of those files before
+            // the first folder can be looked at. Each one is asked for as it comes near the screen
+            // instead - the row being read and the row under it, not the row a thousand folders
+            // down. A browser that cannot watch for that, or a page where this went wrong, is given
+            // every picture at once: the watching is an economy, not a requirement.
+            (function () {
+              var pictures = Array.prototype.slice.call(document.querySelectorAll('img[data-src]'));
+              if (pictures.length === 0) { return; }
+
+              function ask(picture) {
+                if (!picture.getAttribute('src')) {
+                  picture.setAttribute('src', picture.getAttribute('data-src'));
+                }
+              }
+
+              function askForEveryOne() { pictures.forEach(ask); }
+
+              try {
+                if (!('IntersectionObserver' in window)) { askForEveryOne(); return; }
+
+                var watcher = new IntersectionObserver(function (entries) {
+                  entries.forEach(function (entry) {
+                    if (!entry.isIntersecting) { return; }
+                    ask(entry.target);
+                    watcher.unobserve(entry.target);
+                  });
+                }, { rootMargin: '800px 600px' });
+
+                pictures.forEach(function (picture) { watcher.observe(picture); });
+              } catch (error) {
+                askForEveryOne();
+              }
+            })();
 
             document.getElementById('expandAll').addEventListener('click', function () {
               sections.forEach(function (details) { details.open = true; });
