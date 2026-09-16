@@ -343,14 +343,16 @@
           <DockPanel Grid.Row="0" Margin="0,0,0,4">
             <Button DockPanel.Dock="Right" Content="Gather again" Style="{StaticResource ToolbarButton}"
                     Command="{Binding RefreshGalleryCommand}"
-                    ToolTip="Pick a fresh set of pictures for every folder. The pictures are picked at random, so two runs show different ones." />
+                    ToolTip="Pick a fresh set of pictures for every folder. The pictures are picked at random, so two runs show different ones; the folders on screen are read again straight away." />
             <TextBlock Text="{Binding GallerySummary}" Foreground="#666666" VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis" ToolTip="{Binding GallerySummary}" />
           </DockPanel>
 
           <Border Grid.Row="1" BorderBrush="#DDDDDD" BorderThickness="1" CornerRadius="4" Background="#FFFFFF">
-            <ListBox ItemsSource="{Binding GalleryFolders}" BorderThickness="0" Background="Transparent"
+            <ListBox x:Name="GalleryList" ItemsSource="{Binding GalleryFolders}" BorderThickness="0" Background="Transparent"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.ScrollChanged="GalleryList_ScrollChanged"
+                     Loaded="GalleryList_Loaded" SizeChanged="GalleryList_SizeChanged"
                      VirtualizingPanel.IsVirtualizing="True"
                      VirtualizingPanel.VirtualizationMode="Recycling">
               <ListBox.ItemContainerStyle>
@@ -369,10 +371,24 @@
               </ListBox.ItemContainerStyle>
               <ListBox.ItemTemplate>
                 <DataTemplate>
+                  <!-- Every card is the same height: each line is one line and the row of pictures is
+                       one row of one height, so the list can be measured - and the bar on the right
+                       be right - before any of the pictures have been found. -->
                   <Border Margin="8,8,8,0" Padding="10" CornerRadius="4"
                           Background="#FAFBFC" BorderBrush="#E3E6EA" BorderThickness="1">
-                    <StackPanel>
-                      <DockPanel>
+                    <Grid>
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="22" />
+                        <RowDefinition Height="16" />
+                        <RowDefinition Height="20" />
+                        <RowDefinition Height="20" />
+                        <!-- The row of pictures keeps its height whether a folder has any yet, which
+                             is what makes every card the same height from the moment it goes up. -->
+                        <RowDefinition Height="180" />
+                        <RowDefinition Height="18" />
+                      </Grid.RowDefinitions>
+
+                      <DockPanel Grid.Row="0">
                         <Button DockPanel.Dock="Right" Content="Show in the tree" MinWidth="0" Padding="6,2"
                                 Style="{StaticResource ToolbarButton}"
                                 Command="{Binding DataContext.ShowInTreeCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
@@ -381,41 +397,60 @@
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
                                    TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
                       </DockPanel>
-                      <TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="#666666"
+
+                      <TextBlock Grid.Row="1" Text="{Binding FullPath}" FontSize="11" Foreground="#666666"
                                  TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
-                      <TextBlock Text="{Binding Summary}" Foreground="#4B5563" Margin="0,3,0,0" TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding Comment}" Margin="0,3,0,0" TextWrapping="Wrap" Foreground="#6B7280"
-                                 Visibility="{Binding HasComment, Converter={StaticResource BoolToVisibility}}" />
 
-                      <ItemsControl ItemsSource="{Binding Pictures}" Margin="0,6,0,0">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal" />
-                          </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate>
-                            <Border Margin="0,0,8,8" Padding="5" CornerRadius="4" Background="#FFFFFF"
-                                    BorderBrush="#E3E6EA" BorderThickness="1" Cursor="Hand"
-                                    MouseLeftButtonDown="GalleryPicture_MouseLeftButtonDown"
-                                    ToolTip="{Binding Hint}">
-                              <StackPanel Width="220">
-                                <Image Source="{Binding Bytes, Converter={StaticResource ThumbnailFromBytes}}"
-                                       Width="210" Height="132" Stretch="Uniform" />
-                                <TextBlock Text="{Binding Caption}" FontSize="12" Margin="0,3,0,0"
-                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}" />
-                                <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="#6B7280"
-                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
-                              </StackPanel>
-                            </Border>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
+                      <!-- One line each, the whole of it in the tooltip: the card keeps the height it
+                           had whether a folder has a note or not. -->
+                      <TextBlock Grid.Row="2" Text="{Binding Summary}" Foreground="#4B5563"
+                                 TextTrimming="CharacterEllipsis" ToolTip="{Binding Summary}" />
+                      <TextBlock Grid.Row="3" Text="{Binding Comment}" Foreground="#6B7280"
+                                 TextTrimming="CharacterEllipsis" ToolTip="{Binding Comment}" />
 
-                      <TextBlock Text="{Binding Note}" FontSize="11" Foreground="#6B7280" Margin="0,2,0,0"
-                                 TextWrapping="Wrap"
+                      <Grid Grid.Row="4" Margin="0,4,0,0">
+                        <!-- The row of pictures: one line, as wide as the card, scrolling sideways when
+                             the card holds more than the width takes. -->
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                      Visibility="{Binding HasPictures, Converter={StaticResource BoolToVisibility}}">
+                          <ItemsControl ItemsSource="{Binding Pictures}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                              </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <Border Margin="0,0,8,0" Padding="5" CornerRadius="4" Background="#FFFFFF"
+                                        BorderBrush="#E3E6EA" BorderThickness="1" Cursor="Hand"
+                                        MouseLeftButtonDown="GalleryPicture_MouseLeftButtonDown"
+                                        ToolTip="{Binding Hint}">
+                                  <StackPanel Width="220">
+                                    <Border Background="#111111" CornerRadius="3">
+                                      <Image Source="{Binding Thumbnail}" Width="210" Height="120" Stretch="Uniform" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Caption}" FontSize="12" Margin="0,3,0,0"
+                                               TextTrimming="CharacterEllipsis" ToolTip="{Binding Caption}" />
+                                    <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="#6B7280"
+                                               TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
+                                  </StackPanel>
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </ScrollViewer>
+
+                        <!-- Where the pictures have not been found yet, or will not be: the card says
+                             which rather than leaving the space empty and unexplained. -->
+                        <TextBlock Text="{Binding Status}" FontSize="12" Foreground="#6B7280" TextWrapping="Wrap"
+                                   VerticalAlignment="Top"
+                                   Visibility="{Binding HasStatus, Converter={StaticResource BoolToVisibility}}" />
+                      </Grid>
+
+                      <TextBlock Grid.Row="5" Text="{Binding Note}" FontSize="11" Foreground="#6B7280"
+                                 TextTrimming="CharacterEllipsis" ToolTip="{Binding Note}"
                                  Visibility="{Binding HasNote, Converter={StaticResource BoolToVisibility}}" />
-                    </StackPanel>
+                    </Grid>
                   </Border>
                 </DataTemplate>
               </ListBox.ItemTemplate>

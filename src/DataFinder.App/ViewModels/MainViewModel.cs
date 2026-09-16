@@ -21,10 +21,7 @@ public sealed record AutoSelectOption(AutoSelectMode Mode, string Text);
 public sealed class MainViewModel : ObservableObject
 {
     /// <summary>How many pictures each folder shows in the gallery.</summary>
-    private const int GalleryPicturesPerFolder = 4;
-
-    /// <summary>How much picture the whole gallery may carry at once.</summary>
-    private const long GalleryMaxPictureBytes = 24L * 1024 * 1024;
+    private const int GalleryPicturesPerFolder = 6;
 
     private readonly IDialogService _dialogs;
     private readonly PreviewService _previewService = new();
@@ -33,7 +30,11 @@ public sealed class MainViewModel : ObservableObject
     private CancellationTokenSource? _scanCancellation;
     private CancellationTokenSource? _contentsCancellation;
     private CancellationTokenSource? _previewCancellation;
-    private CancellationTokenSource? _galleryCancellation;
+    /// <summary>How the pictures of a folder are found while the gallery is on show.</summary>
+    private GalleryLoader? _galleryLoader;
+
+    /// <summary>True while the cards on show do not match the list and the settings behind them.</summary>
+    private bool _galleryOutOfDate = true;
 
     /// <summary>One report per scanned volume, kept so the preview pane can read the folder tree.</summary>
     private readonly List<ScanReport> _reports = new();
@@ -315,12 +316,17 @@ public sealed class MainViewModel : ObservableObject
 
             if (IsGalleryVisible)
             {
-                StartGalleryLoad();
+                // Coming back to cards that are still the ones the list calls for costs nothing: the
+                // pictures the cards already have stay where they are.
+                if (_galleryOutOfDate || GalleryFolders.Count == 0)
+                {
+                    StartGalleryLoad();
+                }
             }
-            else
-            {
-                CancelGalleryLoad();
-            }
+
+            // Leaving the gallery alone is all that happens when the other pane takes its place:
+            // the cards keep the pictures they have, and nothing further is looked for while the
+            // cards are not on the screen to be looked at.
         }
     }
 
@@ -1111,9 +1117,9 @@ public sealed class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Fills the gallery: every folder of the list at once, each with a few pictures of what is
-    /// inside it, picked at random. It is the same work the web page does, and it reads the folders
-    /// the same way, so what the window shows and what the page shows are the same thing.
+    /// Fills the gallery with a card per folder of the list. The cards go up at once and the pictures
+    /// are found as each card comes into view - see <see cref="ShowGalleryFolder"/> - so the pane is
+    /// ready however long the list is, and what it spends is spent on the folders being looked at.
     /// </summary>
     private void StartGalleryLoad()
     {
@@ -1129,223 +1135,115 @@ public sealed class MainViewModel : ObservableObject
         if (IsScanning)
         {
             // A scan or an import is still reading the list, so the gallery waits for it rather than
-            // gathering half of a list that is about to be replaced.
-            GallerySummary = "The list is still being read; the pictures are gathered as soon as it is done.";
+            // laying out half of a list that is about to be replaced.
+            GallerySummary = "The list is still being read; the cards go up as soon as it is done.";
             return;
         }
 
-        var cancellation = new CancellationTokenSource();
-        _galleryCancellation = cancellation;
-        _ = LoadGalleryAsync(cancellation);
+        IReadOnlyList<string> suffixes = DecodeSetup.Extensions;
+        IReadOnlyList<RawSchema> schemas = DecodeSetup.ShownSchemas.Count > 0
+            ? DecodeSetup.ShownSchemas
+            : DecodeSetup.UsableSchemas;
+
+        var loader = new GalleryLoader(
+            ListFilesForPage, suffixes, schemas, StretchPreview, GalleryPicturesPerFolder);
+
+        _galleryLoader = loader;
+
+        // Every folder of the list, not only the rows the filter is showing: the pane is for looking
+        // the whole list over, and a filter is for narrowing what is looked at on the left.
+        foreach (ResultTreeNode node in ResultTree.All(ResultTree.Build(Results)))
+        {
+            if (!node.IsMatch)
+            {
+                continue;
+            }
+
+            GalleryFolders.Add(new GalleryFolder
+            {
+                Name = node.Name,
+                FullPath = node.FullPath,
+                Summary = node.Result?.DetailText ?? string.Empty,
+                Comment = node.Comment,
+                Exists = node.Result?.Exists ?? true,
+                Loader = loader,
+            });
+        }
+
+        GallerySummary = GalleryFolders.Count == 0
+            ? "Nothing in the list matched, so there is nothing to show here."
+            : $"{FolderCount(GalleryFolders.Count)}, with the pictures of each found as its card comes into view.";
     }
 
     /// <summary>
-    /// Stops a gathering run that is under way. What it had gathered is either replaced by the next
-    /// run or left on the screen; either way the window stops saying it is busy.
+    /// Stops the lookings that are under way. The cards that have their pictures already keep them
+    /// until the next run replaces them; the ones still being looked into are let go of.
     /// </summary>
     private void CancelGalleryLoad()
     {
-        CancellationTokenSource? cancellation = _galleryCancellation;
-        _galleryCancellation = null;
+        GalleryLoader? loader = _galleryLoader;
+        _galleryLoader = null;
 
-        if (cancellation is null)
+        if (loader is null)
         {
             return;
         }
 
-        cancellation.Cancel();
+        loader.Cancel();
 
-        // The busy state belongs to whatever else is running too - a scan, an import or the web page
-        // - so only the gallery's own share of it is given up here.
-        if (_scanCancellation is null)
+        // A card that is asked to find its pictures after the run it belonged to has gone has nothing
+        // to ask with, so it says so rather than sitting at "looking inside" for ever.
+        foreach (GalleryFolder folder in GalleryFolders)
         {
-            IsScanning = false;
-            ProgressValue = 0;
-            RemainingText = string.Empty;
+            folder.Loader = null;
         }
     }
 
     /// <summary>
     /// Empties the gallery, which is what the list it was drawn from changing means for it. While
-    /// it is not the pane on show there is no reason to gather it again: it is gathered when it is
-    /// asked for.
+    /// it is not the pane on show there is no reason to make the cards again: that is done when it
+    /// is asked for.
     /// </summary>
     private void ClearGallery()
     {
         CancelGalleryLoad();
         GalleryFolders.Clear();
+        _galleryOutOfDate = true;
     }
 
     /// <summary>
-    /// Gathers the gallery again after the list it was drawn from has changed. While the gallery is
-    /// not the pane on show there is nothing to gather for: it is gathered when it is asked for.
+    /// Says that the gallery no longer matches the list it was drawn from - the list or the decode
+    /// settings having changed under it. The cards are made again there and then if the pane is on
+    /// show, and otherwise when it is next shown, so switching back and forth between the two panes
+    /// does not read a single folder's pictures twice over.
     /// </summary>
     private void RefreshGalleryIfShown()
     {
+        _galleryOutOfDate = true;
+
         if (IsGalleryVisible)
         {
             StartGalleryLoad();
         }
     }
 
-    private async Task LoadGalleryAsync(CancellationTokenSource cancellation)
-    {
-        CancellationToken token = cancellation.Token;
-        IsScanning = true;
-        ProgressValue = 0;
-        RemainingText = "Estimating how long this will take...";
-        GallerySummary = "Gathering the pictures...";
-
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var remaining = new RemainingTimeEstimator();
-
-        // Each folder goes on the screen as soon as it is done, so a long list fills while the run
-        // is still going instead of leaving the pane empty until the end.
-        int gathered = 0;
-        var progress = new Progress<GalleryStep>(step =>
-        {
-            if (token.IsCancellationRequested)
-            {
-                return;
-            }
-
-            GalleryFolders.Add(step.Folder);
-            gathered += step.Folder.Pictures.Count;
-
-            double fraction = step.FoldersTotal == 0 ? 1d : (double)step.FoldersDone / step.FoldersTotal;
-            ProgressValue = fraction * 100d;
-            RemainingText = DescribeRemaining(remaining.Update(fraction, stopwatch.Elapsed));
-            StatusText = $"Looking inside {step.Folder.FullPath}...";
-            GallerySummary = $"{step.FoldersDone:N0} of {step.FoldersTotal:N0} folders, {gathered:N0} pictures so far.";
-        });
-
-        try
-        {
-            // The gallery carries every folder of the list, not only the rows the filter is showing.
-            List<ResultTreeNode> folders = ResultTree.All(ResultTree.Build(Results))
-                .Where(node => node.IsMatch)
-                .ToList();
-
-            IReadOnlyList<string> suffixes = DecodeSetup.Extensions;
-            IReadOnlyList<RawSchema> schemas = DecodeSetup.ShownSchemas.Count > 0
-                ? DecodeSetup.ShownSchemas
-                : DecodeSetup.UsableSchemas;
-            bool stretch = StretchPreview;
-
-            GalleryTotals totals = await Task.Run(
-                () => GatherGallery(folders, suffixes, schemas, stretch, progress, token),
-                token);
-
-            if (!token.IsCancellationRequested)
-            {
-                GallerySummary = DescribeGallery(folders.Count, totals);
-                StatusText = totals.Pictures == 0
-                    ? $"Looked inside {FolderCount(folders.Count)}; nothing there could be shown as a picture."
-                    : $"Gathered {totals.Pictures:N0} pictures from {FolderCount(folders.Count)}.";
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception exception)
-        {
-            GallerySummary = exception.Message;
-            StatusText = "Gathering the pictures failed.";
-        }
-        finally
-        {
-            // Only the run that is still the current one clears the busy state: a run that was
-            // replaced left that to the one that replaced it.
-            if (ReferenceEquals(_galleryCancellation, cancellation))
-            {
-                _galleryCancellation = null;
-
-                if (_scanCancellation is null)
-                {
-                    IsScanning = false;
-                    ProgressValue = 0;
-                    RemainingText = string.Empty;
-                }
-            }
-        }
-    }
-
     /// <summary>
-    /// Walks the folders, taking a few pictures out of each. It runs off the UI thread and hands
-    /// each folder over as soon as it is done, so the gallery fills while the run is still going.
+    /// Finds the pictures of a folder whose card has come into view. The card asks for this itself
+    /// as it is shown, and the pane lets the pictures go again when the card goes away - so what the
+    /// gallery holds is the pictures of the cards on the screen and a screen or so either side.
     /// </summary>
-    private GalleryTotals GatherGallery(
-        IReadOnlyList<ResultTreeNode> folders,
-        IReadOnlyList<string> decodeSuffixes,
-        IReadOnlyList<RawSchema> schemas,
-        bool stretch,
-        IProgress<GalleryStep> progress,
-        CancellationToken cancellationToken)
+    public void ShowGalleryFolder(GalleryFolder? folder)
     {
-        var finder = new FolderPictureFinder(new HtmlReportLimits
+        if (folder is null || !ReferenceEquals(folder.Loader, _galleryLoader))
         {
-            PicturesPerFolder = GalleryPicturesPerFolder,
-            MaxTotalPictureBytes = GalleryMaxPictureBytes,
-        });
-
-        for (int index = 0; index < folders.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            ResultTreeNode node = folders[index];
-
-            FolderPictures found = node.Result is { Exists: false }
-                ? new FolderPictures(
-                    Array.Empty<FolderPreviewPicture>(),
-                    "The folder is not there any more, so there is nothing to show.")
-                : finder.Find(node.FullPath, ListFilesForPage, decodeSuffixes, schemas, stretch, cancellationToken);
-
-            var pictures = new List<GalleryPicture>(found.Pictures.Count);
-            foreach (FolderPreviewPicture picture in found.Pictures)
-            {
-                pictures.Add(new GalleryPicture(
-                    picture.Caption,
-                    picture.Note,
-                    Path.Combine(node.FullPath, picture.Caption),
-                    picture.Bytes));
-            }
-
-            progress.Report(new GalleryStep(DescribeFolder(node, pictures, found.Note), index + 1, folders.Count));
+            return;
         }
 
-        return new GalleryTotals(finder.Pictures, finder.LeftOut);
+        _ = folder.EnsureLoadedAsync();
     }
 
-    /// <summary>One card of the gallery: the folder, what is in it, and the pictures that came out of it.</summary>
-    private static GalleryFolder DescribeFolder(
-        ResultTreeNode node,
-        IReadOnlyList<GalleryPicture> pictures,
-        string? note) => new()
-    {
-        Name = node.Name,
-        FullPath = node.FullPath,
-        Summary = node.Result?.DetailText ?? string.Empty,
-        Comment = node.Comment,
-        Note = note,
-        Pictures = pictures,
-    };
-
-    /// <summary>What the gallery says once it has the lot: how many folders, and how many pictures.</summary>
-    private static string DescribeGallery(int folders, GalleryTotals totals)
-    {
-        string leftOut = totals.LeftOut switch
-        {
-            0 => string.Empty,
-            1 => " 1 picture was left out because the gallery was full.",
-            _ => $" {totals.LeftOut:N0} pictures were left out because the gallery was full.",
-        };
-
-        string inside = folders == 1 ? "it" : "them";
-
-        return totals.Pictures == 0
-            ? $"{FolderCount(folders)}, with nothing inside that could be shown as a picture.{leftOut}"
-            : $"{FolderCount(folders)}, with {totals.Pictures:N0} pictures of what is inside {inside}, picked at random.{leftOut}";
-    }
+    /// <summary>Lets go of the pictures of a card that has gone off the screen.</summary>
+    public void HideGalleryFolder(GalleryFolder? folder) => folder?.Release();
 
     private static string FolderCount(int folders) => folders == 1 ? "1 folder" : $"{folders:N0} folders";
 
@@ -1393,12 +1291,6 @@ public sealed class MainViewModel : ObservableObject
 
         return false;
     }
-
-    /// <summary>How far the gallery has got, and the folder it has just finished.</summary>
-    private sealed record GalleryStep(GalleryFolder Folder, int FoldersDone, int FoldersTotal);
-
-    /// <summary>What the whole gallery ended up holding.</summary>
-    private sealed record GalleryTotals(int Pictures, int LeftOut);
 
     /// <summary>
     /// What sits inside a folder, for the web page: the scan that is still in memory answers when
@@ -1466,11 +1358,11 @@ public sealed class MainViewModel : ObservableObject
             ? null
             : _reports.FirstOrDefault(report => path.StartsWith(report.Volume.RootPath, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Stops whatever is running: a scan, an import, the web page, or gathering the gallery.</summary>
+    /// <summary>Stops whatever is running: a scan, an import, the web page, or the looking into folders the gallery does.</summary>
     private void CancelRunningWork()
     {
         _scanCancellation?.Cancel();
-        _galleryCancellation?.Cancel();
+        _galleryLoader?.Cancel();
     }
 
     private void ShowFolder(string path)

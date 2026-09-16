@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using DataFinder.App.Services;
 using DataFinder.App.ViewModels;
 using DataFinder.Core.Results;
@@ -94,6 +96,72 @@ public partial class MainWindow : Window
 
         ShellService.OpenFile(picture.FullPath);
         e.Handled = true;
+    }
+
+    private void GalleryList_Loaded(object sender, RoutedEventArgs e) => UpdateGalleryCards();
+
+    private void GalleryList_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateGalleryCards();
+
+    private void GalleryList_ScrollChanged(object sender, ScrollChangedEventArgs e) => UpdateGalleryCards();
+
+    /// <summary>
+    /// Tells the cards near the screen to find their pictures, and the cards that have gone away to
+    /// let theirs go. It is what the gallery's economy rests on: only the cards being looked at -
+    /// and a screen or so either side of them - hold any picture at all, so a list of a thousand
+    /// folders holds the pictures of a dozen.
+    /// </summary>
+    private void UpdateGalleryCards()
+    {
+        if (FindItemsPanel(GalleryList) is not { } panel)
+        {
+            return;
+        }
+
+        double reach = Math.Max(GalleryList.ActualHeight, 400d);
+        double top = -reach;
+        double bottom = GalleryList.ActualHeight + reach;
+
+        foreach (UIElement child in panel.Children)
+        {
+            if (child is not ListBoxItem { DataContext: GalleryFolder folder } item)
+            {
+                continue;
+            }
+
+            // Where the card sits in the window: the list draws the cards it has made, and this is
+            // what says which of those are in sight and which have been left behind by a scroll.
+            double y = item.TransformToAncestor(GalleryList).Transform(default).Y;
+
+            if (y + item.ActualHeight >= top && y <= bottom)
+            {
+                ViewModel.ShowGalleryFolder(folder);
+            }
+            else
+            {
+                ViewModel.HideGalleryFolder(folder);
+            }
+        }
+    }
+
+    /// <summary>The panel the cards are drawn in, which holds the ones that have been made so far.</summary>
+    private static Panel? FindItemsPanel(DependencyObject parent)
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(parent, index);
+
+            if (child is Panel panel && panel.IsItemsHost)
+            {
+                return panel;
+            }
+
+            if (FindItemsPanel(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private void ResultsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)

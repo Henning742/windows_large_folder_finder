@@ -37,8 +37,9 @@ daemon, no dependencies to install.
    the one folder being read and the preview of the file picked in it, and **Every folder, with
    pictures** is the whole list at once, a card per folder with a few pictures of what is inside
    it. The pictures are picked at random from the pictures and the recordings of each folder, the
-   same way the web page picks them, and *Gather again* picks a fresh set. A long list is gathered
-   with the progress bar filling as it goes, and *Cancel* stops it.
+   same way the web page picks them, and *Gather again* picks a fresh set. A card finds its
+   pictures as it comes into view and lets them go when it leaves again, so the pane is ready as
+   soon as the list is, however long it is, and what it reads is the folders being looked at.
 5. A data file is read with the *schematic* chosen next to it: the frame size, the header in front
    of each frame and the kind of numbers the pixels are. **Decode settings...** keeps that list of
    schematics and the file suffixes to try them on. Tick *Show every ticked schematic at once* and
@@ -353,7 +354,10 @@ Two details are worth knowing, because they decide what shows up:
   schematics at once costs about a fifth of a second on a 960 x 514 recording.
 - A web page carries its pictures as files in a folder beside it, so the page and that folder travel
   together. The bounds in *The web page* are what keeps a run in hand; a folder with more in it than
-  a bound allows is marked as such instead of quietly dropping the rest.
+  a bound allows is marked as such instead of quietly dropping the rest. Neither the page nor the
+  window's gallery has a bound on how much picture it may carry: both ask for the pictures of the
+  folders being looked at and leave the rest alone, so a report of a thousand folders costs about
+  what the first screen of it costs.
 
 ## Project layout
 
@@ -373,7 +377,7 @@ Two details are worth knowing, because they decide what shows up:
 dotnet test tests/DataFinder.Core.Tests/DataFinder.Core.Tests.csproj -c Release
 ```
 
-225 tests cover the boot sector geometry, data run list decoding (including signed offsets and
+248 tests cover the boot sector geometry, data run list decoding (including signed offsets and
 sparse runs, multi-extent attributes and run lists that contain zero bytes), MFT record parsing
 (update sequence fix-ups, DOS name filtering, hard links, corrupt records, attribute list
 entries), resolving an `$ATTRIBUTE_LIST` across extension records (split `$DATA`, split
