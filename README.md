@@ -219,15 +219,16 @@ recording is decoded with the first of the schematics ticked in *Decode settings
 and the caption says which one that was - a thumbnail never leaves you guessing how it was read. A
 folder with nothing showable says so rather than showing nothing.
 
-A run is bounded, so that a list of hundreds of folders ends and the file stays sendable:
+A run is bounded, so that a list of hundreds of folders ends. The bounds are on the looking, not on
+the size: a picture goes into the report whatever it weighs, because it is written as a file of its
+own rather than into the page.
 
 | Bound | How much |
 |---|---|
 | Pictures per folder | 6 |
 | Candidates looked for per folder | 40 |
 | Files looked at per folder | 4,000 |
-| One picture | 4 MB |
-| All the pictures together | 48 MB |
+| One picture | 256 MB, past which a file is taken for something that is not a picture |
 
 Whatever a bound leaves out is said under the folder. The rest costs almost nothing: the folders of
 a scan are read from the index the app already has in memory, so only imported lists make it walk

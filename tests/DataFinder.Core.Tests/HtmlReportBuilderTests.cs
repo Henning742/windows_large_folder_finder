@@ -128,6 +128,21 @@ public sealed class HtmlReportBuilderTests : IDisposable
     }
 
     [Fact]
+    public void CarriesAPictureOfAnySizeWhenNoBoundIsAskedFor()
+    {
+        string set1 = Folder("set1");
+
+        // Five of a megabyte, which the bounds the report used to carry would have turned away.
+        File.WriteAllBytes(Path.Combine(set1, "huge.png"), new byte[5 * 1024 * 1024]);
+
+        HtmlReportBuildResult result = Build(new[] { set1 });
+
+        Assert.Equal(1, result.Pictures);
+        Assert.Equal(0, result.PicturesLeftOut);
+        Assert.Equal(5 * 1024 * 1024, Assert.Single(result.Files).Bytes.Length);
+    }
+
+    [Fact]
     public void WritesARowForTheFoldersOnTheWayWithWhatIsBelowThem()
     {
         string set1 = Folder("set1");

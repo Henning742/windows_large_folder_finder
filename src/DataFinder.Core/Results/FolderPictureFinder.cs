@@ -25,6 +25,12 @@ public sealed record FolderPictures(IReadOnlyList<FolderPreviewPicture> Pictures
 /// </summary>
 public sealed class FolderPictureFinder
 {
+    /// <summary>
+    /// The most that will ever be read for one picture. Past this a file is taken for something
+    /// that is not a picture at all, and reading it would cost the memory of the whole machine.
+    /// </summary>
+    public const long MaxReadablePictureBytes = 256L * 1024 * 1024;
+
     private readonly HtmlReportLimits _limits;
     private readonly Random _random;
     private readonly PictureBudget _budget;
@@ -35,6 +41,13 @@ public sealed class FolderPictureFinder
         _random = random ?? Random.Shared;
         _budget = new PictureBudget(_limits.MaxTotalPictureBytes);
     }
+
+    /// <summary>
+    /// How big one picture may be: what the caller asked for, or - when the caller set no bound,
+    /// which is how reports and the gallery are written - the most a picture can be and be read.
+    /// </summary>
+    private long PictureLimit =>
+        Math.Min(_limits.MaxPictureBytes ?? MaxReadablePictureBytes, MaxReadablePictureBytes);
 
     /// <summary>How many pictures have been taken on since this finder was made.</summary>
     public int Pictures => _budget.Count;
@@ -131,7 +144,7 @@ public sealed class FolderPictureFinder
                 break;
             }
 
-            if (!_budget.HasRoomFor(_limits.MaxPictureBytes))
+            if (!_budget.HasRoomFor(PictureLimit))
             {
                 ranOutOfRoom = true;
                 break;
@@ -186,14 +199,16 @@ public sealed class FolderPictureFinder
         IReadOnlyList<RawSchema> schemas,
         bool stretch)
     {
-        if (file.SizeBytes > _limits.MaxPictureBytes)
+        long limit = PictureLimit;
+
+        if (file.SizeBytes > limit)
         {
             return null;
         }
 
         if (PreviewClassifier.IsImageExtension(file.Name))
         {
-            byte[]? bytes = ReadAllBytes(file.FullPath, _limits.MaxPictureBytes);
+            byte[]? bytes = ReadAllBytes(file.FullPath, limit);
             return bytes is null
                 ? null
                 : new FolderPreviewPicture(file.Name, MimeTypeOf(file.Name), bytes, $"{ByteSize.Format(file.SizeBytes)} - shown as it is");
@@ -271,18 +286,23 @@ public sealed class FolderPictureFinder
     /// <summary>Keeps an eye on how much picture has been taken on so far.</summary>
     private sealed class PictureBudget
     {
-        private readonly long _total;
+        private readonly long? _total;
         private long _used;
 
-        public PictureBudget(long total) => _total = total;
+        public PictureBudget(long? total) => _total = total;
 
         public int Count { get; private set; }
 
         public int LeftOut { get; private set; }
 
+        /// <summary>
+        /// Whether a picture of this size still fits. It is asked before the picture is made, with
+        /// the biggest one that could come out of what is there, so no time is spent on a picture
+        /// that would only be thrown away. With no bound on the whole, there is always room.
+        /// </summary>
         public bool HasRoomFor(long bytes)
         {
-            if (_used + bytes <= _total)
+            if (_total is not { } total || _used + bytes <= total)
             {
                 return true;
             }

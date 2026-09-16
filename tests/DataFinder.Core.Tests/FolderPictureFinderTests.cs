@@ -62,6 +62,20 @@ public sealed class FolderPictureFinderTests : IDisposable
     }
 
     [Fact]
+    public void TakesAPictureOfAnySizeWhenNoBoundIsSet()
+    {
+        string set1 = Folder("set1");
+        File.WriteAllBytes(Path.Combine(set1, "huge.png"), new byte[5 * 1024 * 1024]);
+
+        FolderPictures found = Finder().Find(
+            set1, List, RawFileTypes.Default, Schemas(), stretch: true, CancellationToken.None);
+
+        Assert.Single(found.Pictures);
+        Assert.Equal(5 * 1024 * 1024, found.Pictures[0].Bytes.Length);
+        Assert.Null(found.Note);
+    }
+
+    [Fact]
     public void SaysWhenThereIsNothingToShow()
     {
         string set1 = Folder("empty");

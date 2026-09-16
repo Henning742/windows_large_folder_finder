@@ -16,11 +16,17 @@ public sealed class HtmlReportLimits
     /// <summary>How far into a folder the search goes before giving up on it.</summary>
     public int FilesExaminedPerFolder { get; init; } = 4000;
 
-    /// <summary>A picture bigger than this is left out rather than carried in the report.</summary>
-    public long MaxPictureBytes { get; init; } = 4L * 1024 * 1024;
+    /// <summary>
+    /// A picture bigger than this is left out rather than carried in the report. Left unset, which
+    /// is how reports are written, pictures of any size are taken.
+    /// </summary>
+    public long? MaxPictureBytes { get; init; }
 
-    /// <summary>How much picture the whole report may carry.</summary>
-    public long MaxTotalPictureBytes { get; init; } = 48L * 1024 * 1024;
+    /// <summary>
+    /// How much picture the whole report may carry. Left unset, which is how reports are written,
+    /// the report carries what it finds.
+    /// </summary>
+    public long? MaxTotalPictureBytes { get; init; }
 }
 
 /// <summary>How far the report has got, for a progress bar that has something to say.</summary>
